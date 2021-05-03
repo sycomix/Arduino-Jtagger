@@ -296,10 +296,10 @@ void insert_ir(uint8_t * ir_in, uint8_t ir_len, uint8_t end_state, uint8_t * ir_
  * @brief Fill the register with zeros
  * @param reg Pointer to the register to flush.
  */
-void flush_reg(uint8_t * reg){
+void flush_reg(uint8_t * reg, uint16_t len){
 	size_t size = sizeof(reg) / sizeof(reg[0]);  // find the size of the register
-
-	for (uint16_t i = 0; i < size; i++)
+	Serial.print(size, DEC);
+	for (uint16_t i = 0; i < len; i++)
 		reg[i] = 0;
 }
 
@@ -307,9 +307,9 @@ void flush_reg(uint8_t * reg){
 /**
  * @brief Clean the IR and DR by calling flush_reg function.
  */
-void flush_ir_dr(uint8_t * ir_reg, uint8_t * dr_reg){
-	flush_reg(ir_reg);
-	flush_reg(dr_reg);
+void flush_ir_dr(uint8_t * ir_reg, uint16_t ir_len, uint8_t * dr_reg, uint16_t dr_len){
+	flush_reg(ir_reg, ir_len);
+	flush_reg(dr_reg, dr_len);
 }
 
 
@@ -770,11 +770,10 @@ void loop() {
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 	insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
 	Serial.print("\ndr reg: "); Serial.print(arrayToInt(dr_out, 32) ,HEX);
-	flush_ir_dr(ir_in, dr_out);
+	flush_ir_dr(ir_in, dr_out, ir_len, 32);
 
 
 	// attempt to read address from ufm
-	/*
 	intToArray(ir_in, ISC_ENABLE, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
@@ -783,16 +782,16 @@ void loop() {
 	intToArray(ir_in, ISC_ADDRESS_SHIFT, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 	
-	flush_reg(dr_in);
-	intToArray(dr_in, 0x500008, 23);
+	flush_reg(dr_in, 32);
+	intToArray(dr_in, 0x0010a00, 23);
 	insert_dr(dr_in, 23, RUN_TEST_IDLE, dr_out);
 	
 	intToArray(ir_in, ISC_READ, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
-	flush_reg(dr_in);
+	flush_reg(dr_in, 32);
 	insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
-	*/
+	
 
 	
 	while(1);
