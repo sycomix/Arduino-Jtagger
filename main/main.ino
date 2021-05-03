@@ -32,7 +32,7 @@ TAP state transitions.
 
 
 // half clock cycle
-#define HC delay(1);
+#define HC delay(50);
 
 // A more precise way to delay a half clock cycle
 // #define HC __asm__ __volatile__(
@@ -68,7 +68,7 @@ uint8_t detect_chain(void){
 	uint8_t counter = 0;
 
 
-	reset_tap_machine();
+	reset_tap();
 
 	// try to read IDCODE first and then detect the IR length
 	advance_tap_state(RUN_TEST_IDLE);
@@ -94,7 +94,7 @@ uint8_t detect_chain(void){
 
 	// find ir length.
 	Serial.println("\n\nAttempting to find IR length of part ...\n\n");
-	reset_tap_machine();
+	reset_tap();
 	advance_tap_state(RUN_TEST_IDLE);
 	advance_tap_state(SELECT_DR);
 	advance_tap_state(SELECT_IR);
@@ -178,7 +178,8 @@ void intToArray(uint8_t * arr, uint8_t len, uint32_t n){
 	@brief Return to test logic reset state of the TAP FSM.
 	Invoke 5 TCK cycles accompanied with TMS logic state 1.
 */
-void reset_tap_machine(void){
+void reset_tap(void){
+	Serial.println("resetting tap");
 	for (uint8_t i = 0; i < 5; ++i)
 	{
 		digitalWrite(TMS, 1);
@@ -659,7 +660,7 @@ void advance_tap_state(uint8_t next_state){
 /**
  * @brief Waits for the incoming of a special character to Serial.
 */
-void serialEvent() {
+void serialEvent(char character) {
   char inChar;
   while (Serial.available() == 0) {
     // get the new byte:
@@ -667,10 +668,11 @@ void serialEvent() {
     // if the incoming character is a newline, 
 	// break from while and proceed to main loop
     // do something about it:
-    if (inChar == '\n') {
+    if (inChar == character) {
       break;
     }
   }
+  Serial.flush();
 }
 
 
@@ -690,8 +692,6 @@ void send_data_to_host(uint8_t * buf, uint16_t chunk_size)
 }
 
 
-
-
 void setup() {
 	/* initialize mode for jtag pins */
 	pinMode(TCK, OUTPUT);
@@ -707,14 +707,15 @@ void setup() {
 	digitalWrite(TDO, HIGH); // to use PullUp
 	digitalWrite(TRST, 1);
 
-
-
-	/* serial communication */
+	/* Initialize serial communication */
 	Serial.begin(115200);
-	/* wait for user input to start running the program */
-  	serialEvent();
-
+	while (!Serial) {
+    ; // wait for serial port to connect. Needed for native USB port only
+	}
+	Serial.println("Ready...");
 }
+
+
 
 void loop() {
 
@@ -724,26 +725,29 @@ void loop() {
 	uint8_t ir_len = 0;
 	current_state = TEST_LOGIC_RESET;
   	
-	// detect chain and read idcode
-	ir_len = detect_chain();
-	Serial.println("\nIR length: "); Serial.print(ir_len, DEC);
 	
-
-	uint8_t ir_in[ir_len];
-	uint8_t ir_out[ir_len];
-
-	reset_tap_machine();
-	
-	// read user code
-	intToArray(ir_in, USERCODE, ir_len);
-	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-	insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
-	Serial.print("\nUSER CODE: "); Serial.print(arrayToInt(dr_out, 32) ,HEX);
-	
-	
-	
+	while(1){
+		Serial.println("Insert 's' to start");
+		serialEvent('s');
 
 
-	flush_ir_dr(ir_in, dr_out);
-	while ( 1 );
+		// detect chain and read idcode
+		ir_len = detect_chain();
+		Serial.println("\nIR length: "); Serial.print(ir_len, DEC);
+		
+
+		uint8_t ir_in[ir_len];
+		uint8_t ir_out[ir_len];
+
+		reset_tap();
+		
+		// read user code
+		intToArray(ir_in, USERCODE, ir_len);
+		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+		insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
+		Serial.print("\nUSER CODE: "); Serial.print(arrayToInt(dr_out, 32) ,HEX);
+		
+		
+		flush_ir_dr(ir_in, dr_out);
+	}
 }
