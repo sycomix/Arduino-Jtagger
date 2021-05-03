@@ -14,7 +14,7 @@
 comment out this line if you don't wish to see debug info such as
 TAP state transitions.
 */
-#define DEBUGTAP
+// #define DEBUGTAP
 
 
 // set the jtag pins
@@ -23,16 +23,20 @@ TAP state transitions.
 #define TDI 9
 #define TDO 10
 #define TRST 11
+// static const int TCK = 7;
+// static const int TMS = 8;
+// static const int TDI = 9;
+// static const int TDO = 10;
+// static const int TRST = 11;
 
 
-#define MAX_DR_LEN 1000
 #ifndef MAX_DR_LEN
 #define MAX_DR_LEN 256    // usually BSR
 #endif
 
 
 // half clock cycle
-#define HC delay(50);
+#define HC delay(10);
 
 // A more precise way to delay a half clock cycle
 // #define HC __asm__ __volatile__(
@@ -75,12 +79,14 @@ uint8_t detect_chain(void){
 	advance_tap_state(SELECT_DR);
 	advance_tap_state(CAPTURE_DR);
 	advance_tap_state(SHIFT_DR);
+	
 	// shift out the id code from the id code register
-	for (i = 0; i < 32; ++i)
+	for (i = 0; i < 32; i++)
 	{
 		advance_tap_state(SHIFT_DR);
 		id_arr[i] = digitalRead(TDO);  // LSB first
 	}
+
 	// LSB of IDCODe must be 1.
 	if (id_arr[0] != 1)
 	{
@@ -121,6 +127,7 @@ uint8_t detect_chain(void){
 		advance_tap_state(SHIFT_IR);
 
 		if (digitalRead(TDO) == 0){
+			counter++;
 			return counter;
 		}
 		counter++;
@@ -139,7 +146,7 @@ uint8_t detect_chain(void){
  * @param len Integer that represents the length of the binary array.
  * @return An integer that represents the the value of the array bits.
  */
-uint32_t arrayToInt(uint8_t * arr, uint8_t len){
+uint32_t arrayToInt(uint8_t * arr, int len){
 	uint32_t sum = 0;
 	for (int i = 0; i < len; ++i)
 		sum += (arr[i] * pow(2, i));
@@ -155,15 +162,15 @@ uint32_t arrayToInt(uint8_t * arr, uint8_t len){
  * @param len Length of the output array. (max size 32)
  * @param n The integer to convert.
  */
-void intToArray(uint8_t * arr, uint8_t len, uint32_t n){
+void intToArray(uint8_t * arr, uint32_t n, uint8_t len){
 	if (len > 32)
 	{
 		Serial.println("inToArray function, len is larger than 32");
 		Serial.println("Bad Conversion");
 	}
 	
-	uint32_t quotient = 0;
-	for (int8_t i = 0; i < len; ++i)
+	uint32_t quotient = n;
+	for (int8_t i = 0; i < len; i++)
 	{
 		if (quotient % 2)
 			arr[i] = 1;
@@ -175,11 +182,11 @@ void intToArray(uint8_t * arr, uint8_t len, uint32_t n){
 }
 
 /**
-	@brief Return to test logic reset state of the TAP FSM.
+	@brief Return to TEST LOGIC RESET state of the TAP FSM.
 	Invoke 5 TCK cycles accompanied with TMS logic state 1.
 */
 void reset_tap(void){
-	Serial.println("resetting tap");
+	Serial.println("\nresetting tap");
 	for (uint8_t i = 0; i < 5; ++i)
 	{
 		digitalWrite(TMS, 1);
@@ -193,7 +200,7 @@ void reset_tap(void){
 /**
 	@brief Insert data of length dr_len to DR, and end the interaction
 	in the state end_state which can be one of the following:
-	TLR, RTI, PauseIR.
+	TLR, RTI.
 	@param dr_in Pointer to the input data array. (bytes array)
 	@param dr_len Length of the register currently connected between tdi and tdo.
 	@param end_state TAP state after dr inseration.
@@ -209,7 +216,7 @@ void insert_dr(uint8_t * dr_in, uint8_t dr_len, uint8_t end_state, uint8_t * dr_
 	advance_tap_state(SHIFT_DR);
 
 	// shift data bits into the DR. make sure that first bit is LSB
-	for (i = 0; i < dr_len; ++i)
+	for (i = 0; i < dr_len - 1; i++)
 	{
 		digitalWrite(TDI, dr_in[i]);
 		digitalWrite(TCK, 0); HC;
@@ -217,17 +224,21 @@ void insert_dr(uint8_t * dr_in, uint8_t dr_len, uint8_t end_state, uint8_t * dr_
 		dr_out[i] = digitalRead(TDO);  // read the shifted out bits . LSB first
 	}
 
-	// continue to the end state
+	// read and write the last DR bit and continue to the end state
+	digitalWrite(TDI, dr_in[i]);
 	advance_tap_state(EXIT1_DR);
-	advance_tap_state(PAUSE_DR);
+	dr_out[i] = digitalRead(TDO); 
 
-	if (end_state == RUN_TEST_IDLE){
-		advance_tap_state(EXIT2_DR);
-		advance_tap_state(UPDATE_DR);
+	advance_tap_state(UPDATE_DR);
+
+	if (end_state == RUN_TEST_IDLE){	
 		advance_tap_state(RUN_TEST_IDLE);
 	}
-	if (end_state == TEST_LOGIC_RESET){
-			advance_tap_state(TEST_LOGIC_RESET);
+	else if (end_state == SELECT_DR){
+		advance_tap_state(SELECT_DR);
+	}
+	else if (end_state == TEST_LOGIC_RESET){
+		reset_tap();
 	}
 }
 
@@ -236,7 +247,7 @@ void insert_dr(uint8_t * dr_in, uint8_t dr_len, uint8_t end_state, uint8_t * dr_
 /**
 	@brief Insert data of length ir_len to IR, and end the interaction
 	in the state end_state which can be one of the following:
-	TLR, RTI, PauseIR.
+	TLR, RTI, SelectDR.
 	@param ir_in Pointer to the input data array. Bytes array, where each
 	@param ir_len Length of the register currently connected between tdi and tdo.
 	@param end_state TAP state after dr inseration.
@@ -254,7 +265,7 @@ void insert_ir(uint8_t * ir_in, uint8_t ir_len, uint8_t end_state, uint8_t * ir_
 	advance_tap_state(SHIFT_IR);
 
 	// shift data bits into the IR. make sure that first bit is LSB
-	for (i = 0; i < ir_len; ++i)
+	for (i = 0; i < ir_len - 1; i++)
 	{
 		digitalWrite(TDI, ir_in[i]);
 		digitalWrite(TCK, 0); HC;
@@ -262,17 +273,21 @@ void insert_ir(uint8_t * ir_in, uint8_t ir_len, uint8_t end_state, uint8_t * ir_
 		ir_out[i] = digitalRead(TDO);  // read the shifted out bits . LSB first
 	}
 
-	// continue to the end state
-	advance_tap_state(EXIT1_IR);
-	advance_tap_state(PAUSE_IR);
+	// read and write the last IR bit and continue to the end state
+	digitalWrite(TDI, ir_in[i]);
+	advance_tap_state(EXIT1_IR);	
+	ir_out[i] = digitalRead(TDO);
+	
+	advance_tap_state(UPDATE_IR);
 
-	if (end_state == RUN_TEST_IDLE){
-		advance_tap_state(EXIT2_IR);
-		advance_tap_state(UPDATE_IR);
+	if (end_state == RUN_TEST_IDLE){	
 		advance_tap_state(RUN_TEST_IDLE);
 	}
-	if (end_state == TEST_LOGIC_RESET){
-			advance_tap_state(TEST_LOGIC_RESET);
+	else if (end_state == SELECT_IR){
+		advance_tap_state(SELECT_IR);
+	}
+	else if (end_state == TEST_LOGIC_RESET){
+		reset_tap();
 	}
 }
 
@@ -676,6 +691,16 @@ void serialEvent(char character) {
 }
 
 
+/**
+ * @brief Prints the given array.
+*/
+void printArray(uint8_t * arr, uint16_t len){
+	for (int16_t i = len-1; i >= 0; i--)
+		Serial.print(arr[i], DEC);
+	
+}
+
+
 
 /**
  * @brief Sends the bytes of an array/buffer via the serial port.
@@ -692,7 +717,8 @@ void send_data_to_host(uint8_t * buf, uint16_t chunk_size)
 }
 
 
-void setup() {
+void setup() {	
+
 	/* initialize mode for jtag pins */
 	pinMode(TCK, OUTPUT);
 	pinMode(TMS, OUTPUT);
@@ -708,7 +734,7 @@ void setup() {
 	digitalWrite(TRST, 1);
 
 	/* Initialize serial communication */
-	Serial.begin(115200);
+	Serial.begin(9600);
 	while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
 	}
@@ -718,36 +744,56 @@ void setup() {
 
 
 void loop() {
-
-	uint32_t idcode = 0x00000000;
-	uint8_t dr_out[MAX_DR_LEN];
-	uint8_t dr_in[MAX_DR_LEN];
+	uint32_t idcode = 0;
+	uint8_t dr_out[MAX_DR_LEN] = {0};
+	uint8_t dr_in[MAX_DR_LEN] = {0};
 	uint8_t ir_len = 0;
 	current_state = TEST_LOGIC_RESET;
-  	
 	
-	while(1){
-		Serial.println("Insert 's' to start");
-		serialEvent('s');
+	
+	Serial.println("Insert 's' to start");
+	serialEvent('s');
+
+	// detect chain and read idcode
+	ir_len = detect_chain();
+	Serial.println("\nIR length: "); Serial.print(ir_len, DEC);
+
+	uint8_t ir_in[ir_len] = {0};
+	uint8_t ir_out[ir_len] = {0};
+
+	reset_tap();
+	
+	// read user code
+	intToArray(ir_in, USERCODE, ir_len);
+	Serial.println("\nir reg: ");	printArray(ir_in, ir_len);
+	
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+	insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
+	Serial.print("\ndr reg: "); Serial.print(arrayToInt(dr_out, 32) ,HEX);
+	flush_ir_dr(ir_in, dr_out);
 
 
-		// detect chain and read idcode
-		ir_len = detect_chain();
-		Serial.println("\nIR length: "); Serial.print(ir_len, DEC);
-		
+	// attempt to read address from ufm
+	/*
+	intToArray(ir_in, ISC_ENABLE, ir_len);
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
-		uint8_t ir_in[ir_len];
-		uint8_t ir_out[ir_len];
+	delay(15);
+	
+	intToArray(ir_in, ISC_ADDRESS_SHIFT, ir_len);
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+	
+	flush_reg(dr_in);
+	intToArray(dr_in, 0x500008, 23);
+	insert_dr(dr_in, 23, RUN_TEST_IDLE, dr_out);
+	
+	intToArray(ir_in, ISC_READ, ir_len);
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
-		reset_tap();
-		
-		// read user code
-		intToArray(ir_in, USERCODE, ir_len);
-		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-		insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
-		Serial.print("\nUSER CODE: "); Serial.print(arrayToInt(dr_out, 32) ,HEX);
-		
-		
-		flush_ir_dr(ir_in, dr_out);
-	}
+	flush_reg(dr_in);
+	insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
+	*/
+
+	
+	while(1);
 }
