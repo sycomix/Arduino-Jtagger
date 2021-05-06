@@ -107,7 +107,7 @@ uint8_t detect_chain(void){
 
 	// turn idcode_bits into an unsigned integer
 	idcode = arrayToInt(id_arr, 32);
-	Serial.print("\nFound IDCODE: "); Serial.print(idcode, HEX);
+	Serial.print("\nFound IDCODE: 0x"); Serial.print(idcode, HEX);
 
 
 	// find ir length.
@@ -159,10 +159,17 @@ uint8_t detect_chain(void){
  * @return An integer that represents the the value of the array bits.
  */
 uint32_t arrayToInt(uint8_t * arr, int len){
-	uint32_t sum = 0;
-	for (int i = 0; i < len; ++i)
-		sum += (arr[i] * pow(2, i));
-	return sum;
+	
+	uint32_t integer = 0;
+  	uint32_t mask = 1;
+	
+	for (int i = 0; i < len; i++) {
+		if (arr[i])
+			integer |= mask;
+		
+		mask = mask << 1;
+	}
+	return integer;
 }
 
 
@@ -171,25 +178,27 @@ uint32_t arrayToInt(uint8_t * arr, int len){
  * the binary value of n. each element (byte) in arr represent a bit.
  * First element is the LSB. Largest number is a 32 bit number.
  * @param arr Pointer to the output array with the binary values.
- * @param len Length of the output array. (max size 32)
+ * @param len Length of the output array in bytes. (max size 32)
  * @param n The integer to convert.
  */
-void intToArray(uint8_t * arr, uint32_t n, uint8_t len){
+void intToBinArray(uint8_t * arr, uint32_t n, uint16_t len){
 	if (len > 32)
 	{
-		Serial.println("inToArray function, len is larger than 32");
+		Serial.println("inToArray function, len is larger than 32 bits");
 		Serial.println("Bad Conversion");
 	}
+	uint32_t mask = 1;
 	
-	uint32_t quotient = n;
-	for (int8_t i = 0; i < len; i++)
-	{
-		if (quotient % 2)
-			arr[i] = 1;
-		else
-			arr[i] = 0;
-		
-		quotient /= 2;
+	flush_reg(arr, len);
+	
+	for (int i = 0; i < len; i++) {
+        if (n & mask){
+            arr[i] = 1;
+        }
+        else{
+            arr[i] = 0;
+        }
+        mask <<= 1;
 	}
 }
 
@@ -309,8 +318,6 @@ void insert_ir(uint8_t * ir_in, uint8_t ir_len, uint8_t end_state, uint8_t * ir_
  * @param reg Pointer to the register to flush.
  */
 void flush_reg(uint8_t * reg, uint16_t len){
-	size_t size = sizeof(reg) / sizeof(reg[0]);  // find the size of the register
-	Serial.print(size, DEC);
 	for (uint16_t i = 0; i < len; i++)
 		reg[i] = 0;
 }
@@ -719,8 +726,7 @@ uint32_t getNumber(int num_bytes, const char * message){
 		Serial.read();
 	
 	// notify user to input a value
-	Serial.println(message);
-    Serial.flush();
+	Serial.print(message);
 
     while (Serial.available() == 0)
     {
@@ -731,16 +737,16 @@ uint32_t getNumber(int num_bytes, const char * message){
 
     myData[m] = '\0';  //insert null charcater
 
-#ifdef DEBUGSERIAL
-	Serial.println("myData: ");
-	Serial.print(myData) ;///shows: the hexadecimal string from user
-#endif
+// #ifdef DEBUGSERIAL
+	// Serial.print("myData: ");
+	// Serial.print(myData) ;///shows: the hexadecimal string from user
+// #endif
 
     //------------ convert string to hexadeciaml value
-    unsigned long z = strtol(myData, NULL, 16);
+    uint32_t z = strtol(myData, NULL, 16);
 
 #ifdef DEBUGSERIAL
-    Serial.print("\nI received: ");
+    Serial.print("\nreceived: 0x");
     Serial.println(z, HEX);    //shows 12A3
     Serial.flush();
 #endif
@@ -752,9 +758,10 @@ uint32_t getNumber(int num_bytes, const char * message){
  * @brief Prints the given array.
 */
 void printArray(uint8_t * arr, uint16_t len){
-	for (int16_t i = len-1; i >= 0; i--)
+	for (int16_t i = len-1; i >= 0; i--){
 		Serial.print(arr[i], DEC);
-	
+	}
+	Serial.flush();
 }
 
 
@@ -773,7 +780,10 @@ void send_data_to_host(uint8_t * buf, uint16_t chunk_size)
 }
 
 
-/* My custom functions for MAX10 FPGA project */
+
+/* --------------------------------------------------------------------------------------- */
+/* ------------------- My custom functions for MAX10 FPGA project -------------------------*/
+/* --------------------------------------------------------------------------------------- */
 
 /**
  * @brief Read user defined 32 bit code of MAX10 FPGA.
@@ -786,43 +796,84 @@ void send_data_to_host(uint8_t * buf, uint16_t chunk_size)
 uint32_t read_user_code(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t * dr_out){
 	uint32_t usercode = 0;
 
-	intToArray(ir_in, USERCODE, ir_len);
+	flush_reg(dr_out, MAX_DR_LEN);
+
+	intToBinArray(ir_in, USERCODE, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 	insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
+	
 	usercode = arrayToInt(dr_out, 32);
 
-	Serial.print("\nUSERCODE: "); Serial.print(usercode ,HEX);
+	Serial.print("\nUSERCODE: 0x"); Serial.print(usercode ,HEX);
 	return usercode;
 }
 
 
 /**
  * @brief 
- * try: 400,000  500,000  300,000  200,000  100,000
+ * @param ir_in
+ * @param ir_out
+ * @param dr_in
+ * @param dr_out
+ * @param start
+ * @param stop
 */
-void read_ufm_range(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t * dr_out, uint32_t start, uint32_t end){
+void read_ufm_range(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t * dr_out, uint32_t start, uint32_t stop){
+	if (start >= stop){
+		Serial.println("\nStart address is bigger or equal to stop address. Exiting...");
+		return;
+	}
 	
-	intToArray(ir_in, ISC_ENABLE, ir_len);
+	intToBinArray(ir_in, ISC_ENABLE, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
-	delay(15); // may be shortened
+	delay(15); // delay bw=etweeb ISC_Enable and read attenpt.(may be shortened)
 	
-	for (uint32_t j=start ; j < end; j+=4){
-		intToArray(ir_in, ISC_ADDRESS_SHIFT, ir_len);
+	for (uint32_t j=start ; j < stop; j += 4){
+		// shift address instruction
+		intToBinArray(ir_in, ISC_ADDRESS_SHIFT, ir_len);
 		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 		
+		// shift address value
 		flush_reg(dr_in, 32);
-		intToArray(dr_in, j, 23);
+		intToBinArray(dr_in, j, 23);
 		insert_dr(dr_in, 23, RUN_TEST_IDLE, dr_out);
 		
-		intToArray(ir_in, ISC_READ, ir_len);
+		// shift read instruction
+		intToBinArray(ir_in, ISC_READ, ir_len);
 		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
+		// read data
 		flush_reg(dr_in, 32);
 		insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
+
+		// print data
+		Serial.print("\n0x"); Serial.print(arrayToInt(dr_out, 32), HEX);
+		Serial.flush();
 	}
 }
 
+
+void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t * dr_out){
+
+	uint32_t startAddr = 0;
+	uint32_t stopAddr = 0;
+	Serial.print("\nReading flash address range");
+	
+	while (1){
+		flush_reg(dr_in, MAX_DR_LEN);
+		flush_reg(dr_out, MAX_DR_LEN);
+		
+		reset_tap();
+
+		startAddr = getNumber(16, "\nInsert start addr: ");
+		stopAddr = getNumber(16, "\nInsert end addr: ");
+		read_ufm_range(ir_in, ir_out, dr_in, dr_out, startAddr, stopAddr);
+		
+		Serial.println("\nInput 'q' to quit loop, else to continue");
+		serialEvent('q');
+	}
+}
 
 
 
@@ -870,16 +921,15 @@ void loop() {
 	
 	// read user code
 	read_user_code(ir_in, ir_out, dr_in, dr_out);
-	flush_ir_dr(ir_in, dr_out, ir_len, 32);
+	flush_ir_dr(ir_in, dr_out, ir_len, MAX_DR_LEN);
 
 
 	// attempt to read address range from ufm
-	uint32_t startAddr = getNumber(7, "\nInsert start addr: ");
-	uint32_t endAddr = getNumber(7, "\nInsert end addr: ");
-	read_ufm_range(ir_in, ir_out, dr_in, dr_out, startAddr, endAddr);
+	readFlashSession(ir_in, ir_out, dr_in, dr_out);
+	
 
 	// disable ISC
-	intToArray(ir_in, ISC_DISABLE, ir_len);
+	intToBinArray(ir_in, ISC_DISABLE, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
 	reset_tap();
