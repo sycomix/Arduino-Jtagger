@@ -1,7 +1,8 @@
 /** @file main.ino
  *
  * @brief basic jtagger, built for simple purposes such as:
- *		detecting existance of a scan chain. read idcode, insert ir and dr...
+ *		detecting existance of a scan chain. read idcode, insert ir and dr,
+ *		and easy implementation of custom made operations.
  *
  * @author Michael Vigdorchik, October 2019, Retro
  */
@@ -16,6 +17,14 @@ TAP state transitions.
 */
 // #define DEBUGTAP
 
+/* 
+comment out this line if you don't wish to see debug info regarding
+user input via serial port.
+*/
+#define DEBUGSERIAL
+
+
+
 
 // set the jtag pins
 #define TCK 7
@@ -23,11 +32,6 @@ TAP state transitions.
 #define TDI 9
 #define TDO 10
 #define TRST 11
-// static const int TCK = 7;
-// static const int TMS = 8;
-// static const int TDI = 9;
-// static const int TDO = 10;
-// static const int TRST = 11;
 
 
 #ifndef MAX_DR_LEN
@@ -37,7 +41,6 @@ TAP state transitions.
 
 // half clock cycle
 #define HC delay(10);
-
 // A more precise way to delay a half clock cycle
 // #define HC __asm__ __volatile__(
 //     		 "nop\t\n
@@ -45,6 +48,13 @@ TAP state transitions.
 //     		  nop\t\n
 //     		  nop\t\n" : : );
 
+
+
+// Global Variables
+uint32_t idcode = 0;
+uint8_t dr_out[MAX_DR_LEN] = {0};
+uint8_t dr_in[MAX_DR_LEN] = {0};
+uint8_t ir_len = 0;
 
 
 
@@ -81,11 +91,13 @@ uint8_t detect_chain(void){
 	advance_tap_state(SHIFT_DR);
 	
 	// shift out the id code from the id code register
-	for (i = 0; i < 32; i++)
+	for (i = 0; i < 31; i++)
 	{
 		advance_tap_state(SHIFT_DR);
 		id_arr[i] = digitalRead(TDO);  // LSB first
 	}
+	id_arr[i] = digitalRead(TDO);
+	advance_tap_state(EXIT1_DR);
 
 	// LSB of IDCODe must be 1.
 	if (id_arr[0] != 1)
@@ -307,7 +319,7 @@ void flush_reg(uint8_t * reg, uint16_t len){
 /**
  * @brief Clean the IR and DR by calling flush_reg function.
  */
-void flush_ir_dr(uint8_t * ir_reg, uint16_t ir_len, uint8_t * dr_reg, uint16_t dr_len){
+void flush_ir_dr(uint8_t * ir_reg, uint8_t * dr_reg, uint16_t ir_len, uint16_t dr_len){
 	flush_reg(ir_reg, ir_len);
 	flush_reg(dr_reg, dr_len);
 }
@@ -691,6 +703,51 @@ void serialEvent(char character) {
 }
 
 
+
+/**
+ * @brief Used for various tasks where a hexadecimal number needs to be received
+ * from the user via the serial port.
+ * @param num_bytes The amount of hexadecimal characters to receive.
+ * @param message Message for the user.
+ * @return uint32_t representation of the hexadecimal number from user.
+ */
+uint32_t getNumber(int num_bytes, const char * message){
+    char myData[num_bytes];
+
+    // first, clean the input buffer
+	while (Serial.available())
+		Serial.read();
+	
+	// notify user to input a value
+	Serial.println(message);
+    Serial.flush();
+
+    while (Serial.available() == 0)
+    {
+		// wait for user input
+	}
+
+    byte m = Serial.readBytesUntil('\n', myData, num_bytes);
+
+    myData[m] = '\0';  //insert null charcater
+
+#ifdef DEBUGSERIAL
+	Serial.println("myData: ");
+	Serial.print(myData) ;///shows: the hexadecimal string from user
+#endif
+
+    //------------ convert string to hexadeciaml value
+    unsigned long z = strtol(myData, NULL, 16);
+
+#ifdef DEBUGSERIAL
+    Serial.print("\nI received: ");
+    Serial.println(z, HEX);    //shows 12A3
+    Serial.flush();
+#endif
+    return z;
+}
+
+
 /**
  * @brief Prints the given array.
 */
@@ -699,7 +756,6 @@ void printArray(uint8_t * arr, uint16_t len){
 		Serial.print(arr[i], DEC);
 	
 }
-
 
 
 /**
@@ -715,6 +771,59 @@ void send_data_to_host(uint8_t * buf, uint16_t chunk_size)
 	}
 	Serial.flush();
 }
+
+
+/* My custom functions for MAX10 FPGA project */
+
+/**
+ * @brief Read user defined 32 bit code of MAX10 FPGA.
+ * @param ir_in ir_in
+ * @param ir_out ir_out
+ * @param dr_in dr_in
+ * @param dr_out dr_out
+ * @return 32 bit integer that represents the user code.
+ */
+uint32_t read_user_code(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t * dr_out){
+	uint32_t usercode = 0;
+
+	intToArray(ir_in, USERCODE, ir_len);
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+	insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
+	usercode = arrayToInt(dr_out, 32);
+
+	Serial.print("\nUSERCODE: "); Serial.print(usercode ,HEX);
+	return usercode;
+}
+
+
+/**
+ * @brief 
+ * try: 400,000  500,000  300,000  200,000  100,000
+*/
+void read_ufm_range(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t * dr_out, uint32_t start, uint32_t end){
+	
+	intToArray(ir_in, ISC_ENABLE, ir_len);
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+
+	delay(15); // may be shortened
+	
+	for (uint32_t j=start ; j < end; j+=4){
+		intToArray(ir_in, ISC_ADDRESS_SHIFT, ir_len);
+		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+		
+		flush_reg(dr_in, 32);
+		intToArray(dr_in, j, 23);
+		insert_dr(dr_in, 23, RUN_TEST_IDLE, dr_out);
+		
+		intToArray(ir_in, ISC_READ, ir_len);
+		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+
+		flush_reg(dr_in, 32);
+		insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
+	}
+}
+
+
 
 
 void setup() {	
@@ -734,7 +843,7 @@ void setup() {
 	digitalWrite(TRST, 1);
 
 	/* Initialize serial communication */
-	Serial.begin(9600);
+	Serial.begin(115200);
 	while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
 	}
@@ -744,15 +853,11 @@ void setup() {
 
 
 void loop() {
-	uint32_t idcode = 0;
-	uint8_t dr_out[MAX_DR_LEN] = {0};
-	uint8_t dr_in[MAX_DR_LEN] = {0};
-	uint8_t ir_len = 0;
 	current_state = TEST_LOGIC_RESET;
-	
 	
 	Serial.println("Insert 's' to start");
 	serialEvent('s');
+
 
 	// detect chain and read idcode
 	ir_len = detect_chain();
@@ -764,35 +869,19 @@ void loop() {
 	reset_tap();
 	
 	// read user code
-	intToArray(ir_in, USERCODE, ir_len);
-	Serial.println("\nir reg: ");	printArray(ir_in, ir_len);
-	
-	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-	insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
-	Serial.print("\ndr reg: "); Serial.print(arrayToInt(dr_out, 32) ,HEX);
+	read_user_code(ir_in, ir_out, dr_in, dr_out);
 	flush_ir_dr(ir_in, dr_out, ir_len, 32);
 
 
-	// attempt to read address from ufm
-	intToArray(ir_in, ISC_ENABLE, ir_len);
+	// attempt to read address range from ufm
+	uint32_t startAddr = getNumber(7, "\nInsert start addr: ");
+	uint32_t endAddr = getNumber(7, "\nInsert end addr: ");
+	read_ufm_range(ir_in, ir_out, dr_in, dr_out, startAddr, endAddr);
+
+	// disable ISC
+	intToArray(ir_in, ISC_DISABLE, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
-	delay(15);
-	
-	intToArray(ir_in, ISC_ADDRESS_SHIFT, ir_len);
-	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-	
-	flush_reg(dr_in, 32);
-	intToArray(dr_in, 0x0010a00, 23);
-	insert_dr(dr_in, 23, RUN_TEST_IDLE, dr_out);
-	
-	intToArray(ir_in, ISC_READ, ir_len);
-	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-
-	flush_reg(dr_in, 32);
-	insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
-	
-
-	
+	reset_tap();
 	while(1);
 }
