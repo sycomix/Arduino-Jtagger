@@ -40,7 +40,7 @@ user input via serial port.
 
 
 // half clock cycle
-#define HC delay(10);
+#define HC delay(1);
 // A more precise way to delay a half clock cycle
 // #define HC __asm__ __volatile__(
 //     		 "nop\t\n
@@ -847,13 +847,21 @@ void read_ufm_range(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t 
 		flush_reg(dr_in, 32);
 		insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
 
-		// print data
-		Serial.print("\n0x"); Serial.print(arrayToInt(dr_out, 32), HEX);
+		// print address and corresponding data
+		Serial.print("\n0x"); Serial.print(j, HEX);
+		Serial.print(": 0x"); Serial.print(arrayToInt(dr_out, 32), HEX);
 		Serial.flush();
 	}
 }
 
 
+/**
+ * @brief 
+ * @param ir_in
+ * @param ir_out
+ * @param dr_in
+ * @param dr_out
+*/
 void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t * dr_out){
 
 	uint32_t startAddr = 0;
@@ -867,11 +875,72 @@ void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_
 		reset_tap();
 
 		startAddr = getNumber(16, "\nInsert start addr: ");
-		stopAddr = getNumber(16, "\nInsert end addr: ");
+		stopAddr = getNumber(16, "\nInsert stop addr: ");
 		read_ufm_range(ir_in, ir_out, dr_in, dr_out, startAddr, stopAddr);
 		
 		Serial.println("\nInput 'q' to quit loop, else to continue");
 		serialEvent('q');
+		return;
+	}
+}
+
+
+
+/**
+ * @brief 
+ * @param numInstructions Usually 2^ir_len
+*/
+void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out, uint16_t maxDRLen){
+	uint32_t instruction = 0;
+	int counter;
+	int i;
+	
+
+	// discover all dr lengths corresponding to their ir.
+	Serial.print("\n\nDiscovery of instructions from 0x"); Serial.print(first, HEX);
+	Serial.print(" to 0x"); Serial.println(last, HEX);
+	
+	
+	for (instruction=0 ; instruction < numInstructions; instruction++){
+		// reset tap
+		reset_tap();
+		counter = 0;
+
+		// prepare to shift instruction
+		intToBinArray(ir_in, instruction, ir_len);
+
+		// shift instruction
+		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+
+		/* some delay to process the instruction */
+		
+		advance_tap_state(SELECT_DR);
+		advance_tap_state(CAPTURE_DR);
+
+		digitalWrite(TDI, 1);
+		
+		for (i = 0; i < maxDRLen; i++){
+			advance_tap_state(SHIFT_DR);
+		}
+
+		digitalWrite(TDI, 0);
+		advance_tap_state(SHIFT_DR);
+		digitalWrite(TDI, 1);
+
+		for (i = 0; i < maxDRLen; i++){
+			counter++;
+			advance_tap_state(SHIFT_DR);
+
+			if (digitalRead(TDO) == 0)
+				break;
+		}
+		
+		if (counter == maxDRLen){
+			counter = -1; // tdo stuck at 1
+		}
+		Serial.print("\nDetecting DR length for IR 0x");
+		Serial.print(instruction, HEX); Serial.print(" ... ");
+		Serial.print(counter);
 	}
 }
 
@@ -924,14 +993,16 @@ void loop() {
 	flush_ir_dr(ir_in, dr_out, ir_len, MAX_DR_LEN);
 
 
+	/*
 	// attempt to read address range from ufm
 	readFlashSession(ir_in, ir_out, dr_in, dr_out);
-	
-
 	// disable ISC
 	intToBinArray(ir_in, ISC_DISABLE, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+	*/
+	discovery(17,ir_in,ir_out,760);
 
 	reset_tap();
 	while(1);
 }
+
