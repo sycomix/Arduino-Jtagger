@@ -901,7 +901,7 @@ void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out,
 	Serial.print(" to 0x"); Serial.println(last, HEX);
 	
 	
-	for (instruction=0 ; instruction < numInstructions; instruction++){
+	for (instruction=first ; instruction <= last; instruction++){
 		// reset tap
 		reset_tap();
 		counter = 0;
@@ -942,6 +942,7 @@ void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out,
 		Serial.print(instruction, HEX); Serial.print(" ... ");
 		Serial.print(counter);
 	}
+	Serial.print("\nDone");
 }
 
 
@@ -1000,7 +1001,7 @@ void loop() {
 	intToBinArray(ir_in, ISC_DISABLE, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 	*/
-	discovery(17,ir_in,ir_out,760);
+	discovery(0,17,ir_in,ir_out,760);
 
 	reset_tap();
 	while(1);
