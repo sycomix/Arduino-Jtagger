@@ -759,6 +759,40 @@ uint32_t getNumber(int num_bytes, const char * message){
 }
 
 
+
+/**
+ * @brief Used for various tasks where an input character needs to be received
+ * from the user via the serial port.
+ * @param message Message for the user.
+ * @return char input from user.
+ */
+char getCharacter(const char * message){
+    char inChar[1] = {0};
+
+    // first, clean the input buffer
+	while (Serial.available())
+		Serial.read();
+	
+	// notify user to input a value
+	Serial.print(message);
+
+    while (Serial.available() == 0)
+    {
+		// wait for user input
+	}
+
+    Serial.readBytesUntil('\n', inChar, 1);
+	char character = inChar[0];
+
+#ifdef DEBUGSERIAL
+    Serial.print("\nreceived: ");
+    Serial.println(inChar[0]);
+    Serial.flush();
+#endif
+    return character;
+}
+
+
 /**
  * @brief Prints the given array.
 */
@@ -815,26 +849,28 @@ uint32_t read_user_code(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint
 
 
 /**
- * @brief 
- * @param ir_in
- * @param ir_out
- * @param dr_in
- * @param dr_out
- * @param start
- * @param stop
+ * @brief Perform read flash operation on the MAX10 FPGA, by getting an address range and 
+ * incrementing the given address in each iteration with ISC_ADDRESS_SHIFT, before invoking ISC_READ.
+ * @param ir_in Pointer to the input data array. Bytes array, where each
+ * @param ir_out Pointer to the output data array. (bytes array)
+ * @param dr_in Pointer to the input data array. (bytes array)
+ * @param dr_out Pointer to the output data array. (bytes array)
+ * @param start Address from which to start the flash reading.
+ * @param num Amount of 32 bit words to read, starting from the start address.
 */
-void read_ufm_range(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t * dr_out, uint32_t start, uint32_t stop){
-	if (start >= stop){
-		Serial.println("\nStart address is bigger or equal to stop address. Exiting...");
+void read_ufm_range(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t * dr_out, uint32_t const start, uint32_t const num){
+	if (num < 0){
+		Serial.println("\nNumber of words to read must be positive. Exiting...");
 		return;
 	}
+	Serial.println("\nReading flash in address iteration fashion");
 	
 	intToBinArray(ir_in, ISC_ENABLE, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
-	delay(15); // delay bw=etweeb ISC_Enable and read attenpt.(may be shortened)
+	delay(15); // delay between ISC_Enable and read attenpt.(may be shortened)
 	
-	for (uint32_t j=start ; j < stop; j += 4){
+	for (uint32_t j=start ; j < (start + num); j += 4){
 		// shift address instruction
 		intToBinArray(ir_in, ISC_ADDRESS_SHIFT, ir_len);
 		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
@@ -860,17 +896,69 @@ void read_ufm_range(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t 
 }
 
 
+
 /**
- * @brief 
- * @param ir_in
- * @param ir_out
- * @param dr_in
- * @param dr_out
+ * @brief Perform read flash operation on the MAX10 FPGA, by getting an address range and 
+ * incrementing the given address in each iteration with ISC_ADDRESS_SHIFT, before invoking ISC_READ.
+ * @param ir_in Pointer to the input data array.  (bytes array)
+ * @param ir_out Pointer to the output data array. (bytes array)
+ * @param dr_in Pointer to the input data array. (bytes array)
+ * @param dr_out Pointer to the output data array. (bytes array)
+ * @param start Address from which to start the flash reading.
+ * @param num Amount of 32 bit words to read, starting from the start address.
+*/
+void read_ufm_range_burst(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t * dr_out, uint32_t const start, uint32_t const num){
+	if (num < 0){
+		Serial.println("\nNumber of words to read must be positive. Exiting...");
+		return;
+	}
+	Serial.println("\nReading flash in burst fashion");
+	
+	
+	intToBinArray(ir_in, ISC_ENABLE, ir_len);
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+
+	delay(15); // delay between ISC_Enable and read attenpt.(may be shortened)
+
+	// shift address instruction
+	intToBinArray(ir_in, ISC_ADDRESS_SHIFT, ir_len);
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+
+	// shift address value
+	flush_reg(dr_in, 32);
+	intToBinArray(dr_in, start, 23);
+	insert_dr(dr_in, 23, RUN_TEST_IDLE, dr_out);
+
+	// shift read instruction
+	intToBinArray(ir_in, ISC_READ, ir_len);
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+
+	flush_reg(dr_in, 32);
+
+	for (uint32_t j=start ; j < (start + num); j += 4){
+		// read data in burst fashion
+		insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
+
+		// print address and corresponding data
+		Serial.print("\n0x"); Serial.print(j, HEX);
+		Serial.print(": 0x"); Serial.print(arrayToInt(dr_out, 32), HEX);
+		Serial.flush();
+	}
+}
+
+
+/**
+ * @brief User interface with the various flash reading functions.
+ * @param ir_in  Pointer to the input data array.  (bytes array)
+ * @param ir_out Pointer to the output data array. (bytes array)
+ * @param dr_in Pointer to the input data array. (bytes array)
+ * @param dr_out Pointer to the output data array. (bytes array)
 */
 void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t * dr_out){
-
 	uint32_t startAddr = 0;
-	uint32_t stopAddr = 0;
+	uint32_t numToRead = 0;
+	char funcOption = 0;
+
 	Serial.print("\nReading flash address range");
 	
 	while (1){
@@ -879,27 +967,40 @@ void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_
 		
 		reset_tap();
 
-		startAddr = getNumber(16, "\nInsert start addr: ");
-		stopAddr = getNumber(16, "\nInsert stop addr: ");
-		read_ufm_range(ir_in, ir_out, dr_in, dr_out, startAddr, stopAddr);
+		funcOption = getCharacter("\nChoose an option: a = noraml read, b = burst read > ");
+
+		if (funcOption == 'a'){
+			startAddr = getNumber(16, "\nInsert start addr: ");
+			numToRead = getNumber(16, "\nInsert amount of words to read: ");
+			read_ufm_range(ir_in, ir_out, dr_in, dr_out, startAddr, numToRead);
+		}
+		else if (funcOption == 'b')
+		{
+			startAddr = getNumber(16, "\nInsert start addr: ");
+			numToRead = getNumber(16, "\nInsert amount of words to read: ");
+			read_ufm_range_burst(ir_in, ir_out, dr_in, dr_out, startAddr, numToRead);
+		}		
 		
-		Serial.println("\nInput 'q' to quit loop, else to continue");
-		serialEvent('q');
-		return;
+		if (getCharacter("\nInput 'q' to quit loop, else to continue: ") == 'q'){
+			Serial.println("Exiting...");
+			break;
+		}
 	}
 }
 
 
 
 /**
- * @brief 
- * @param first
- * @param last Usually 2^ir_len - 1
- * @param ir_in
- * @param ir_out
- * @param dr_in
- * @param dr_out
- * @param maxDRLen
+ * @brief Similarly to discovery command in urjtag, performs a brute force search of each possible
+ * value of the ir register to get its corresponding dr leght in bits.
+ * test logic reset state is being reached after each instructio.
+ * @param first ir value to begin with.
+ * @param last Usually 2^ir_len - 1.
+ * @param ir_in Pointer to ir_in register.
+ * @param ir_out Pointer to ir_out register.
+ * @param dr_in Pointer to dr_in register.
+ * @param dr_out Pointer to dr_out register.
+ * @param maxDRLen Maximum data register allowed.
 */
 void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out, uint16_t maxDRLen){
 	uint32_t instruction = 0;
@@ -1015,10 +1116,12 @@ void loop() {
 	
 	// attempt to read address range from ufm
 	readFlashSession(ir_in, ir_out, dr_in, dr_out);
+
 	// disable ISC
 	intToBinArray(ir_in, ISC_DISABLE, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-		
+	
+	
 
 	// discovery(0,1024,ir_in,ir_out,760);
 
