@@ -2,7 +2,9 @@
 
 ## example:
 
-void loop() {
+```
+void loop()
+{
 	uint32_t idcode = 0;
 	uint8_t dr_out[MAX_DR_LEN] = {0};
 	uint8_t dr_in[MAX_DR_LEN] = {0};
@@ -27,3 +29,4 @@ void loop() {
     
     while(1);
 }
+```
