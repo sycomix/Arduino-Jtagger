@@ -39,8 +39,11 @@ user input via serial port.
 #endif
 
 
+/*	Choose a half-clock cycle delay	*/
 // half clock cycle
-#define HC delay(1);
+// #define HC delay(1);
+// or
+#define HC delayMicroseconds(500);
 // A more precise way to delay a half clock cycle
 // #define HC __asm__ __volatile__(
 //     		 "nop\t\n
@@ -693,8 +696,9 @@ void advance_tap_state(uint8_t next_state){
 
 /**
  * @brief Waits for the incoming of a special character to Serial.
+ * @return The input char.
 */
-void serialEvent(char character) {
+char serialEvent(char character) {
   char inChar;
   while (Serial.available() == 0) {
     // get the new byte:
@@ -707,6 +711,7 @@ void serialEvent(char character) {
     }
   }
   Serial.flush();
+  return inChar;
 }
 
 
@@ -888,7 +893,13 @@ void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_
 
 /**
  * @brief 
- * @param numInstructions Usually 2^ir_len
+ * @param first
+ * @param last Usually 2^ir_len - 1
+ * @param ir_in
+ * @param ir_out
+ * @param dr_in
+ * @param dr_out
+ * @param maxDRLen
 */
 void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out, uint16_t maxDRLen){
 	uint32_t instruction = 0;
@@ -906,6 +917,12 @@ void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out,
 		reset_tap();
 		counter = 0;
 
+		
+		intToBinArray(ir_in, ISC_ENABLE, ir_len);
+		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+		HC; HC;
+		
+		
 		// prepare to shift instruction
 		intToBinArray(ir_in, instruction, ir_len);
 
@@ -913,6 +930,7 @@ void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out,
 		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
 		/* some delay to process the instruction */
+		HC; HC; HC; HC;  // a couple of clock cycles
 		
 		advance_tap_state(SELECT_DR);
 		advance_tap_state(CAPTURE_DR);
@@ -942,7 +960,7 @@ void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out,
 		Serial.print(instruction, HEX); Serial.print(" ... ");
 		Serial.print(counter);
 	}
-	Serial.print("\nDone");
+	Serial.println("\n\n   Done");
 }
 
 
@@ -994,14 +1012,15 @@ void loop() {
 	flush_ir_dr(ir_in, dr_out, ir_len, MAX_DR_LEN);
 
 
-	/*
+	
 	// attempt to read address range from ufm
 	readFlashSession(ir_in, ir_out, dr_in, dr_out);
 	// disable ISC
 	intToBinArray(ir_in, ISC_DISABLE, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-	*/
-	discovery(0,17,ir_in,ir_out,760);
+		
+
+	// discovery(0,1024,ir_in,ir_out,760);
 
 	reset_tap();
 	while(1);
