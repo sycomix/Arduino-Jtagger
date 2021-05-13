@@ -114,7 +114,7 @@ uint8_t detect_chain(void){
 
 
 	// find ir length.
-	Serial.println("\nAttempting to find IR length of part ...");
+	Serial.print("\nAttempting to find IR length of part ...");
 	reset_tap();
 	advance_tap_state(RUN_TEST_IDLE);
 	advance_tap_state(SELECT_DR);
@@ -970,18 +970,18 @@ void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_
 		funcOption = getCharacter("\nChoose an option: a = noraml read, b = burst read > ");
 
 		if (funcOption == 'a'){
-			startAddr = getNumber(16, "\nInsert start addr: ");
-			numToRead = getNumber(16, "\nInsert amount of words to read: ");
+			startAddr = getNumber(16, "\nInsert start addr > ");
+			numToRead = getNumber(16, "\nInsert amount of words to read > ");
 			read_ufm_range(ir_in, ir_out, dr_in, dr_out, startAddr, numToRead);
 		}
 		else if (funcOption == 'b')
 		{
-			startAddr = getNumber(16, "\nInsert start addr: ");
-			numToRead = getNumber(16, "\nInsert amount of words to read: ");
+			startAddr = getNumber(16, "\nInsert start addr > ");
+			numToRead = getNumber(16, "\nInsert amount of words to read > ");
 			read_ufm_range_burst(ir_in, ir_out, dr_in, dr_out, startAddr, numToRead);
 		}		
 		
-		if (getCharacter("\nInput 'q' to quit loop, else to continue: ") == 'q'){
+		if (getCharacter("\nInput 'q' to quit loop, else to continue > ") == 'q'){
 			Serial.println("Exiting...");
 			break;
 		}
@@ -1072,20 +1072,30 @@ void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out,
  * @param ir_out Pointer to ir_out register.
  */
 void erase_device(uint8_t * ir_in, uint8_t * ir_out){
-	flush_reg(ir_in, ir_len);
-	intToBinArray(ir_in, ISC_ERASE, ir_len);
-	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-	delay(2000);
+
+	if (getCharacter("\nAre you sure ? (y/n)") == 'y'){
+		Serial.println("\nErasing device ...");
+		
+		flush_reg(ir_in, ir_len);
+		intToBinArray(ir_in, ISC_ERASE, ir_len);
+		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+		delay(2000);
+	}
+	else{
+		Serial.println("\nReturning to menu");
+	}
 }
 
 
 void printMenu(){
+	Serial.print("\n\nMenu:");
+	Serial.print("\nAll parameters are passed in hexadecimal");
 	Serial.print("\na - Read flash");
 	Serial.print("\nb - Detect Chain");
 	Serial.print("\nc - Read User code");
 	Serial.print("\nd - Discovery");
 	Serial.print("\ne - Erase");
-	Serial.print("\nq - Exit");
+	Serial.print("\nz - Exit");
 }
 
 
@@ -1120,8 +1130,7 @@ void loop() {
 
 	current_state = TEST_LOGIC_RESET;
 	
-	Serial.println("Insert 's' to start");
-	serialEvent('s');
+	getCharacter("Insert 's' to start > ");
 
 
 	// detect chain and read idcode
@@ -1135,7 +1144,7 @@ void loop() {
 	// enter user menu
 	while (1){
 		printMenu();
-		command = getCharacter("\nChoose command: ");
+		command = getCharacter("\nChoose command > ");
 		
 		reset_tap();
 		
@@ -1149,19 +1158,20 @@ void loop() {
 		case 'b':
 			// detect chain and read idcode
 			ir_len = detect_chain();
-			Serial.println("\nIR length: "); Serial.print(ir_len, DEC);
+			Serial.print("IR length: "); Serial.print(ir_len, DEC);
 			break;
 
 		case 'c':
 			// read user code
 			read_user_code(ir_in, ir_out, dr_in, dr_out);
 			flush_ir_dr(ir_in, dr_out, ir_len, MAX_DR_LEN);
+			break;
 
 		case 'd':
 			// discovery of IRs
-			discovery(getNumber(20, "Initial IR: "),
-					  getNumber(20, "Final IR: "),
-					  ir_in,ir_out,760);
+			discovery(getNumber(20, "\nInitial IR > "),
+					  getNumber(20, "\nFinal IR > "),
+					  ir_in,ir_out,getNumber(20, "Max DR length > "));
 			break;
 
 		case 'e':
@@ -1169,13 +1179,15 @@ void loop() {
 			erase_device(ir_in, ir_out);
 			break;
 		
-		case 'q':
+		case 'z':
+			// quit main loop
+			Serial.print("\nExiting menu...");
 			break;
 		
 		default:
 			break;
 		}
-		if (command == 'q')
+		if (command == 'z')
 			break;		
 	}
 	
