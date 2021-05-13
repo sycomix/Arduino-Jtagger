@@ -1,7 +1,21 @@
+"""
+@file controller.py
+
+@brief Basic interface with the Jtagger Arduino driver.
+        Enables easy and convinient user interaction with the driver.
+
+@author Michael Vigdorchik, October 2019, REtro team.
+@version Modifed 2021 version for Intel project.
+"""
+
+
 import serial
 import time
 from sys import stdout
 
+
+# globals
+INPUT_CHAR = ">"
 
 # uart propreties
 PORT = "COM7"
@@ -13,6 +27,10 @@ s = serial.Serial(port=PORT, baudrate=BAUD, timeout=TIMEOUT)
 
 
 def writer(data: str):
+    """
+    Attempt to write data to serial device.
+    @param data: String data to write.
+    """
     if data == "":
         # user entered not data.
         # happens when just pressing "ENTER" key, to pass input function
@@ -23,7 +41,10 @@ def writer(data: str):
 
 def reader():
     """
-
+    Try to read lines from serial device, till the INPUT_CHAR
+    character is received.
+    @return True if the INPUT_CHAR character is received, else
+    return None if nothing was received. ("")
     """
     recv = "0"
 
@@ -34,7 +55,7 @@ def reader():
             stdout.write(recv)
             stdout.flush()
 
-            if ">" in recv:  # user input is required
+            if INPUT_CHAR in recv:  # user input is required
                 return True
         
         except serial.SerialException:
@@ -46,7 +67,7 @@ def reader():
 
 def init_arduino():
     """
-    read arduino "start message" and send a start signal
+    Read arduino "start message" and send a start signal.
     """
     # wait for arduino to send start message
     while reader() is None:

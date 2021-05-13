@@ -1,10 +1,11 @@
 /** @file main.ino
  *
- * @brief basic jtagger, built for simple purposes such as:
+ * @brief Basic Jtagger, built for simple purposes such as:
  *		detecting existance of a scan chain. read idcode, insert ir and dr,
- *		and easy implementation of custom made operations.
+ *		and other simple or complex implementations of custom made operations.
  *
- * @author Michael Vigdorchik, October 2019, Retro
+ * @author Michael Vigdorchik, October 2019, REtro team.
+ * @version Modifed 2021 version for Intel project.
  */
 
 
@@ -24,9 +25,7 @@ user input via serial port.
 #define DEBUGSERIAL
 
 
-
-
-// set the jtag pins
+// Define JTAG pins as you wish
 #define TCK 7
 #define TMS 8
 #define TDI 9
@@ -1075,7 +1074,7 @@ void erase_device(uint8_t * ir_in, uint8_t * ir_out){
 
 	if (getCharacter("\nAre you sure ? (y/n)") == 'y'){
 		Serial.println("\nErasing device ...");
-		
+
 		flush_reg(ir_in, ir_len);
 		intToBinArray(ir_in, ISC_ERASE, ir_len);
 		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
