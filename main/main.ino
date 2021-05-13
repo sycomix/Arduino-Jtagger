@@ -114,7 +114,7 @@ uint8_t detect_chain(void){
 
 
 	// find ir length.
-	Serial.println("\n\nAttempting to find IR length of part ...\n\n");
+	Serial.println("\nAttempting to find IR length of part ...");
 	reset_tap();
 	advance_tap_state(RUN_TEST_IDLE);
 	advance_tap_state(SELECT_DR);
@@ -1066,8 +1066,30 @@ void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out,
 
 
 
-void setup() {	
+/**
+ * @brief Erase the entire flash
+ * @param ir_in Pointer to ir_in register.
+ * @param ir_out Pointer to ir_out register.
+ */
+void erase_device(uint8_t * ir_in, uint8_t * ir_out){
+	flush_reg(ir_in, ir_len);
+	intToBinArray(ir_in, ISC_ERASE, ir_len);
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+	delay(2000);
+}
 
+
+void printMenu(){
+	Serial.print("\na - Read flash");
+	Serial.print("\nb - Detect Chain");
+	Serial.print("\nc - Read User code");
+	Serial.print("\nd - Discovery");
+	Serial.print("\ne - Erase");
+	Serial.print("\nq - Exit");
+}
+
+
+void setup(){
 	/* initialize mode for jtag pins */
 	pinMode(TCK, OUTPUT);
 	pinMode(TMS, OUTPUT);
@@ -1093,6 +1115,9 @@ void setup() {
 
 
 void loop() {
+	char command = '0';
+
+
 	current_state = TEST_LOGIC_RESET;
 	
 	Serial.println("Insert 's' to start");
@@ -1101,30 +1126,65 @@ void loop() {
 
 	// detect chain and read idcode
 	ir_len = detect_chain();
-	Serial.println("\nIR length: "); Serial.print(ir_len, DEC);
+	Serial.print("IR length: "); Serial.print(ir_len, DEC);
 
+	// define ir register according to ir lenght
 	uint8_t ir_in[ir_len] = {0};
 	uint8_t ir_out[ir_len] = {0};
 
-	reset_tap();
+	// enter user menu
+	while (1){
+		printMenu();
+		command = getCharacter("\nChoose command: ");
+		
+		reset_tap();
+		
+		switch (command)
+		{
+		case 'a':
+			// attempt to read address range from ufm
+			readFlashSession(ir_in, ir_out, dr_in, dr_out);
+			break;
+		
+		case 'b':
+			// detect chain and read idcode
+			ir_len = detect_chain();
+			Serial.println("\nIR length: "); Serial.print(ir_len, DEC);
+			break;
+
+		case 'c':
+			// read user code
+			read_user_code(ir_in, ir_out, dr_in, dr_out);
+			flush_ir_dr(ir_in, dr_out, ir_len, MAX_DR_LEN);
+
+		case 'd':
+			// discovery of IRs
+			discovery(getNumber(20, "Initial IR: "),
+					  getNumber(20, "Final IR: "),
+					  ir_in,ir_out,760);
+			break;
+
+		case 'e':
+			// erase device entirely
+			erase_device(ir_in, ir_out);
+			break;
+		
+		case 'q':
+			break;
+		
+		default:
+			break;
+		}
+		if (command == 'q')
+			break;		
+	}
 	
-	// read user code
-	read_user_code(ir_in, ir_out, dr_in, dr_out);
-	flush_ir_dr(ir_in, dr_out, ir_len, MAX_DR_LEN);
-
-
 	
-	// attempt to read address range from ufm
-	readFlashSession(ir_in, ir_out, dr_in, dr_out);
-
+	
 	// disable ISC
 	intToBinArray(ir_in, ISC_DISABLE, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 	
-	
-
-	// discovery(0,1024,ir_in,ir_out,760);
-
 	reset_tap();
 	while(1);
 }
