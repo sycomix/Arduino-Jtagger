@@ -176,6 +176,133 @@ uint32_t arrayToInt(uint8_t * arr, int len){
 
 
 /**
+ * @brief Used for various tasks where a hexadecimal number needs to be received
+ * from the user via the serial port.
+ * @param num_bytes The amount of hexadecimal characters to receive.
+ * @param message Message for the user.
+ * @return uint32_t representation of the hexadecimal number from user.
+ */
+uint32_t getInteger(int num_bytes, const char * message){
+    char myData[num_bytes];
+
+    // first, clean the input buffer
+	while (Serial.available())
+		Serial.read();
+	
+	// notify user to input a value
+	Serial.print(message);
+
+    while (Serial.available() == 0)
+    {
+		// wait for user input
+	}
+
+    byte m = Serial.readBytesUntil('\n', myData, num_bytes);
+
+    myData[m] = '\0';  //insert null charcater
+
+// #ifdef DEBUGSERIAL
+	// Serial.print("myData: ");
+	// Serial.print(myData) ;///shows: the hexadecimal string from user
+// #endif
+
+    //------------ convert string to hexadeciaml value
+    uint32_t z = strtol(myData, NULL, 16);
+
+#ifdef DEBUGSERIAL
+    Serial.print("\nreceived: 0x");
+    Serial.println(z, HEX);    //shows 12A3
+    Serial.flush();
+#endif
+    return z;
+}
+
+
+/**
+ * @brief Convert a binary string into a bytes array arr that will represent
+ * the binary value just as string. each element (byte) in arr represents a bit.
+ * First element is the LSB.
+ * @param arr Pointer to the output array with the binary values.
+ * @param arrSize Length of the output array in bytes.
+ * @param str String that represents the binary digits.
+ * (LSB is the first char of string).
+ * @param strSize Length of the string object.
+ * @return -1 for error
+ */
+int binStrToBinArray(uint8_t * arr, int arrSize, String str ,int strSize){
+    int i;
+
+	if (strSize > arrSize){
+		Serial.println("\nbinStrToBinArray function,length of string is larger than destination array");
+		Serial.println("Bad Conversion");
+        return -1;
+	}
+	flush_reg(arr, arrSize);
+
+	for (i = 0; i < strSize; i++)
+        arr[i] = str[i] - 0x30; // ascii to uint
+    
+	for (i = strSize; i < arrSize; i++)
+        arr[i] = 0;
+}
+
+
+/**
+ * @brief Convert a hexadecimal string into a bytes array arr that will represent
+ * the binary value of the hexadecimal array. each element (byte) in arr represents a bit.
+ * First element is the LSB.
+ * @param arr Pointer to the output array with the binary values.
+ * @param arrSize Length of the output array in bytes.
+ * @param str String that represents the hexadecimal digits.
+ * (LSB is the first char of string).
+ * @param strSize Length of the string object.
+ * @return -1 for error
+ */
+int hexStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
+	int i,j;
+	uint8_t n = 0;
+	
+	if (strSize * 4 > arrSize){
+		Serial.println("\nhexStrToHexArray function, destination array is not large enough");
+		Serial.println("Bad Conversion");
+        return -1;
+	}
+	flush_reg(arr, arrSize);
+	
+
+	for (i = 0; (i < strSize) && (j < arrSize); i++)
+	{
+		j = i * 4;  // update destination array index
+
+		if (str[i] >= 'a' && str[i] <= 'f')
+		{
+			n = str[i] - 0x57;
+		}
+		else if (str[i] >= 'A' && str[i] <= 'F')
+		{
+			n = str[i] - 0x37;
+		}
+		else if (str[i] >= '0' && str[i] <= '9')
+		{
+			n = str[i] - 0x30;
+		}
+		else
+		{
+			Serial.println("\nhexStrToHexArray function, bad digit type");
+			Serial.println("Bad Conversion");
+			return -1;
+		}
+		
+		// copy nibble bits to destination array (LSB first)
+		arr[j] 	   = n & 0x01;
+		arr[j + 1] = n & 0x02;
+		arr[j + 2] = n & 0x04;
+		arr[j + 3] = n & 0x08;	
+	}
+}
+
+
+/**
  * @brief Convert an integer number n into a bytes array arr that will represent
  * the binary value of n. each element (byte) in arr represent a bit.
  * First element is the LSB. Largest number is a 32 bit number.
@@ -186,7 +313,7 @@ uint32_t arrayToInt(uint8_t * arr, int len){
 void intToBinArray(uint8_t * arr, uint32_t n, uint16_t len){
 	if (len > 32)
 	{
-		Serial.println("inToArray function, len is larger than 32 bits");
+		Serial.println("\nintToArray function, len is larger than 32 bits");
 		Serial.println("Bad Conversion");
 	}
 	uint32_t mask = 1;
@@ -203,6 +330,132 @@ void intToBinArray(uint8_t * arr, uint32_t n, uint16_t len){
         mask <<= 1;
 	}
 }
+
+
+
+
+/**
+ * @brief Used for various tasks where an input character needs to be received
+ * from the user via the serial port.
+ * @param message Message for the user.
+ * @return char input from user.
+ */
+char getCharacter(const char * message){
+    char inChar[1] = {0};
+
+    // first, clean the input buffer
+	while (Serial.available())
+		Serial.read();
+	
+	// notify user to input a value
+	Serial.print(message);
+
+    // wait for user input
+	while (Serial.available() == 0)
+    {	}
+
+    Serial.readBytesUntil('\n', inChar, 1);
+	char character = inChar[0];
+
+#ifdef DEBUGSERIAL
+    Serial.print("\nreceived: ");
+    Serial.println(inChar[0]);
+    Serial.flush();
+#endif
+    return character;
+}
+
+
+
+/**
+ * @brief Used for various tasks where a number needs to be received
+ * from the user via the serial port.
+ * @return String object that contains the digits.
+ */
+String getNumber(){
+	String buffer = "";
+	
+	// wait for user input
+	while (Serial.available() == 0)
+    {	}
+
+    buffer = Serial.readStringUntil('\n');
+
+#ifdef DEBUGSERIAL
+	Serial.print("string: ");
+	Serial.print(buffer);    // shows: the hexadecimal string from user
+	Serial.flush();
+#endif
+	return buffer;
+}
+
+
+/**
+ * @brief Similar to getCharacter function. But used to fetch the prefix value
+ * of the user's input of a number. i.e: 0x or 0b. [hex or bin]
+ * @return char representing the user's number prefix.
+ */
+char fetchPrefix(){
+	char prefix[2] = {0, 0};
+
+	// wait for user input
+	while (Serial.available() == 0)
+    {	}
+    
+	Serial.readBytes(prefix, 2);
+
+#ifdef DEBUGSERIAL
+    Serial.print("\nprefix: ");
+    Serial.print(prefix[0]); Serial.print(prefix[1]);
+    Serial.flush();
+#endif
+    return prefix[1];
+}
+
+
+/**
+ * @brief Receive a number from the user, in different types of format.
+ * 0x , 0b, or decimal.
+ * @param message A message for the user.
+ * @param dest Destination array. Will contain user's input value.
+ * @param size Size (in bytes) of the destination array. 
+ */
+void parseNumber(uint8_t * dest, uint16_t size, const char * message){
+	char prefix = 0;
+	String digits = "";
+
+	// first, clean the input buffer
+	while (Serial.available())
+		Serial.read();
+
+	// notify user to input a value
+	Serial.print(message);
+
+	// fetch the format prefix of the number
+	prefix = fetchPrefix();
+
+	// fetch the number from the user
+	digits = getNumber();
+	
+	// user sent in hexadecimal format
+	if (prefix == 'x'){
+		Serial.print("\n0x func");
+		hexStrToBinArray(dest, size, digits, digits.length());
+		
+	}
+	// user sent in binary format
+	else if (prefix == 'b'){
+		Serial.print("\n0b func");
+		binStrToBinArray(dest, size, digits, digits.length());
+	}
+	// user sent in decimal format
+	else
+	{
+		Serial.print("\ndec func");
+	}
+	
+}
+
 
 /**
 	@brief Return to TEST LOGIC RESET state of the TAP FSM.
@@ -714,84 +967,6 @@ char serialEvent(char character) {
 }
 
 
-
-/**
- * @brief Used for various tasks where a hexadecimal number needs to be received
- * from the user via the serial port.
- * @param num_bytes The amount of hexadecimal characters to receive.
- * @param message Message for the user.
- * @return uint32_t representation of the hexadecimal number from user.
- */
-uint32_t getNumber(int num_bytes, const char * message){
-    char myData[num_bytes];
-
-    // first, clean the input buffer
-	while (Serial.available())
-		Serial.read();
-	
-	// notify user to input a value
-	Serial.print(message);
-
-    while (Serial.available() == 0)
-    {
-		// wait for user input
-	}
-
-    byte m = Serial.readBytesUntil('\n', myData, num_bytes);
-
-    myData[m] = '\0';  //insert null charcater
-
-// #ifdef DEBUGSERIAL
-	// Serial.print("myData: ");
-	// Serial.print(myData) ;///shows: the hexadecimal string from user
-// #endif
-
-    //------------ convert string to hexadeciaml value
-    uint32_t z = strtol(myData, NULL, 16);
-
-#ifdef DEBUGSERIAL
-    Serial.print("\nreceived: 0x");
-    Serial.println(z, HEX);    //shows 12A3
-    Serial.flush();
-#endif
-    return z;
-}
-
-
-
-/**
- * @brief Used for various tasks where an input character needs to be received
- * from the user via the serial port.
- * @param message Message for the user.
- * @return char input from user.
- */
-char getCharacter(const char * message){
-    char inChar[1] = {0};
-
-    // first, clean the input buffer
-	while (Serial.available())
-		Serial.read();
-	
-	// notify user to input a value
-	Serial.print(message);
-
-    while (Serial.available() == 0)
-    {
-		// wait for user input
-	}
-
-    Serial.readBytesUntil('\n', inChar, 1);
-	char character = inChar[0];
-
-#ifdef DEBUGSERIAL
-    Serial.print("\nreceived: ");
-    Serial.println(inChar[0]);
-    Serial.flush();
-#endif
-    return character;
-}
-
-
 /**
  * @brief Prints the given array.
 */
@@ -808,7 +983,7 @@ void printArray(uint8_t * arr, uint16_t len){
  * @param buf Pointer to the buffer of data to be sent.
  * @param chunk_size Number of bytes to send to host.
  */
-void send_data_to_host(uint8_t * buf, uint16_t chunk_size)
+void sendDataToHost(uint8_t * buf, uint16_t chunk_size)
 {
 	for (int i = 0; i < chunk_size; ++i)
 	{
@@ -816,7 +991,6 @@ void send_data_to_host(uint8_t * buf, uint16_t chunk_size)
 	}
 	Serial.flush();
 }
-
 
 
 /* --------------------------------------------------------------------------------------- */
@@ -969,14 +1143,14 @@ void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_
 		funcOption = getCharacter("\nChoose an option: a = noraml read, b = burst read > ");
 
 		if (funcOption == 'a'){
-			startAddr = getNumber(16, "\nInsert start addr > ");
-			numToRead = getNumber(16, "\nInsert amount of words to read > ");
+			startAddr = getInteger(16, "\nInsert start addr > ");
+			numToRead = getInteger(16, "\nInsert amount of words to read > ");
 			read_ufm_range(ir_in, ir_out, dr_in, dr_out, startAddr, numToRead);
 		}
 		else if (funcOption == 'b')
 		{
-			startAddr = getNumber(16, "\nInsert start addr > ");
-			numToRead = getNumber(16, "\nInsert amount of words to read > ");
+			startAddr = getInteger(16, "\nInsert start addr > ");
+			numToRead = getInteger(16, "\nInsert amount of words to read > ");
 			read_ufm_range_burst(ir_in, ir_out, dr_in, dr_out, startAddr, numToRead);
 		}		
 		
@@ -986,7 +1160,6 @@ void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_
 		}
 	}
 }
-
 
 
 /**
@@ -1064,7 +1237,6 @@ void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out,
 }
 
 
-
 /**
  * @brief Erase the entire flash
  * @param ir_in Pointer to ir_in register.
@@ -1088,12 +1260,15 @@ void erase_device(uint8_t * ir_in, uint8_t * ir_out){
 
 void printMenu(){
 	Serial.print("\n\nMenu:");
-	Serial.print("\nAll parameters are passed in hexadecimal");
+	Serial.print("\nAll parameters should be passed as {0x, 0b, 0d}");
 	Serial.print("\na - Read flash");
 	Serial.print("\nb - Detect Chain");
 	Serial.print("\nc - Read User code");
-	Serial.print("\nd - Discovery");
+	Serial.print("\nd - Insert dr");
 	Serial.print("\ne - Erase");
+	Serial.print("\nf - Discovery");
+	Serial.print("\ni - Insert ir");
+	Serial.print("\nr - Reset TAP");
 	Serial.print("\nz - Exit");
 }
 
@@ -1118,6 +1293,7 @@ void setup(){
 	while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
 	}
+	Serial.setTimeout(1000); // set timeout for various serial R/W funcs
 	Serial.println("Ready...");
 }
 
@@ -1125,6 +1301,7 @@ void setup(){
 
 void loop() {
 	char command = '0';
+	int nBits = 0;
 
 
 	current_state = TEST_LOGIC_RESET;
@@ -1167,15 +1344,37 @@ void loop() {
 			break;
 
 		case 'd':
-			// discovery of IRs
-			discovery(getNumber(20, "\nInitial IR > "),
-					  getNumber(20, "\nFinal IR > "),
-					  ir_in,ir_out,getNumber(20, "Max DR length > "));
+			// insert dr
+			nBits = getInteger(20, "Enter amount of bits to shift > ");
+			parseNumber(dr_in, nBits, "\nShift DR > ");
+			insert_dr(dr_in, nBits, RUN_TEST_IDLE, dr_out);
+			Serial.print("\nDR out: ");
+			printArray(dr_out, nBits);
 			break;
 
 		case 'e':
 			// erase device entirely
 			erase_device(ir_in, ir_out);
+			break;
+		
+		case 'f':
+			// discovery of IRs
+			discovery(getInteger(20,"\nInitial IR > "),
+					  getInteger(20,"\nFinal IR > "),
+					  ir_in,ir_out, getInteger(20,"Max allowed DR length > "));
+			break;
+
+		case 'i':
+			// insert ir
+			parseNumber(ir_in, ir_len, "\nShift IR > ");
+			insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+			Serial.print("\nIR out: ");
+			printArray(ir_out, ir_len);
+			break;
+
+		case 'r':
+			// reset tap
+			reset_tap();
 			break;
 		
 		case 'z':
@@ -1197,6 +1396,7 @@ void loop() {
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 	
 	reset_tap();
+	Serial.end();
 	while(1);
 }
 
