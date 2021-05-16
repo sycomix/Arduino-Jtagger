@@ -32,7 +32,7 @@ user input via serial port.
 #define TDO 10
 #define TRST 11
 
-
+#define MAX_DR_LEN 32
 #ifndef MAX_DR_LEN
 #define MAX_DR_LEN 256    // usually BSR
 #endif
@@ -57,7 +57,7 @@ uint32_t idcode = 0;
 uint8_t dr_out[MAX_DR_LEN] = {0};
 uint8_t dr_in[MAX_DR_LEN] = {0};
 uint8_t ir_len = 0;
-
+String digits = "";
 
 
 enum TapStates
@@ -66,7 +66,6 @@ enum TapStates
 	SELECT_DR, CAPTURE_DR, SHIFT_DR, EXIT1_DR, PAUSE_DR, EXIT2_DR, UPDATE_DR,
 	SELECT_IR, CAPTURE_IR, SHIFT_IR, EXIT1_IR, PAUSE_IR, EXIT2_IR, UPDATE_IR
 };
-
 enum TapStates current_state;
 
 
@@ -270,34 +269,81 @@ int hexStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
 	flush_reg(arr, arrSize);
 	
 
-	for (i = 0; (i < strSize) && (j < arrSize); i++)
-	{
+	for (i = 0; i < strSize; i++){
 		j = i * 4;  // update destination array index
 
-		if (str[i] >= 'a' && str[i] <= 'f')
-		{
+		if (str[i] >= 'a' && str[i] <= 'f'){
 			n = str[i] - 0x57;
 		}
-		else if (str[i] >= 'A' && str[i] <= 'F')
-		{
+		else if (str[i] >= 'A' && str[i] <= 'F'){
 			n = str[i] - 0x37;
 		}
-		else if (str[i] >= '0' && str[i] <= '9')
-		{
+		else if (str[i] >= '0' && str[i] <= '9'){
 			n = str[i] - 0x30;
 		}
-		else
-		{
+		else{
 			Serial.println("\nhexStrToHexArray function, bad digit type");
 			Serial.println("Bad Conversion");
 			return -1;
 		}
 		
 		// copy nibble bits to destination array (LSB first)
-		arr[j] 	   = n & 0x01;
-		arr[j + 1] = n & 0x02;
-		arr[j + 2] = n & 0x04;
-		arr[j + 3] = n & 0x08;	
+		if (n & 0x01)
+			arr[j] = 1;
+		if (n & 0x02)
+			arr[j + 1] = 1;
+		if (n & 0x04)
+			arr[j + 2] = 1;
+		if (n & 0x08)
+			arr[j + 3] = 1;	
+	}
+}
+
+
+/**
+ * @brief Convert base 10 decimal string into a bytes array arr that will represent
+ * the binary value of the decimal array. each element (byte) in arr represents a bit.
+ * First element is the LSB.
+ * @param arr Pointer to the output array with the binary values.
+ * @param arrSize Length of the output array in bytes.
+ * @param str String that represents the decimal digits.
+ * (LSB is the first char of string).
+ * @param strSize Length of the string object.
+ * @return -1 for error
+ */
+int decStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
+	int i,j;
+	uint8_t n = 0;
+	
+	if (strSize * 4 > arrSize){
+		Serial.println("\ndecStrToHexArray function, destination array is not large enough");
+		Serial.println("Bad Conversion");
+        return -1;
+	}
+	flush_reg(arr, arrSize);
+
+
+	for (i = 0; i < strSize; i++){
+		j = i * 4;  // update destination array index
+
+		if (str[i] >= '0' && str[i] <= '9'){
+			n = str[i] - 0x30;
+		}
+		else{
+			Serial.println("\ndecStrToHexArray function, bad digit type");
+			Serial.println("Bad Conversion");
+			return -1;
+		}
+		
+		// copy nibble bits to destination array (LSB first)
+		if (n & 0x01)
+			arr[j] = 1;
+		if (n & 0x02)
+			arr[j + 1] = 1;
+		if (n & 0x04)
+			arr[j + 2] = 1;
+		if (n & 0x08)
+			arr[j + 3] = 1;	
 	}
 }
 
@@ -332,8 +378,6 @@ void intToBinArray(uint8_t * arr, uint32_t n, uint16_t len){
 }
 
 
-
-
 /**
  * @brief Used for various tasks where an input character needs to be received
  * from the user via the serial port.
@@ -366,27 +410,23 @@ char getCharacter(const char * message){
 }
 
 
-
 /**
  * @brief Used for various tasks where a number needs to be received
  * from the user via the serial port.
- * @return String object that contains the digits.
  */
-String getNumber(){
-	String buffer = "";
-	
+void fetchNumber(){	
 	// wait for user input
 	while (Serial.available() == 0)
     {	}
 
-    buffer = Serial.readStringUntil('\n');
+	digits = Serial.readStringUntil('\n');
 
 #ifdef DEBUGSERIAL
-	Serial.print("string: ");
-	Serial.print(buffer);    // shows: the hexadecimal string from user
+	Serial.print("\nstring: ");
+	Serial.print(digits);
+	Serial.print("\nString length = "); Serial.print(digits.length());
 	Serial.flush();
 #endif
-	return buffer;
 }
 
 
@@ -421,9 +461,9 @@ char fetchPrefix(){
  * @param size Size (in bytes) of the destination array. 
  */
 void parseNumber(uint8_t * dest, uint16_t size, const char * message){
-	char prefix = 0;
-	String digits = "";
-
+	char prefix = '0';
+	uint16_t digitsLen = 0;
+	
 	// first, clean the input buffer
 	while (Serial.available())
 		Serial.read();
@@ -432,26 +472,46 @@ void parseNumber(uint8_t * dest, uint16_t size, const char * message){
 	Serial.print(message);
 
 	// fetch the format prefix of the number
-	prefix = fetchPrefix();
+	// prefix = fetchPrefix();
 
 	// fetch the number from the user
-	digits = getNumber();
+	fetchNumber();
 	
-	// user sent in hexadecimal format
+	if (digits.length() < 2){
+		// no prefix, just a decimal number with 1 digit
+	}
+	else{
+		// hex or bin number with prefix or a decimal witout prefix
+		prefix = digits[1];
+	}
+
+	// user sent hexadecimal format
 	if (prefix == 'x'){
 		Serial.print("\n0x func");
+		// cut out the digits without the prefix
+		digits = digits.substring(2);
+		Serial.print("\nsubstring: "); Serial.print(digits);
+		Serial.print("\nsubstring length: "); Serial.print(digits.length());
 		hexStrToBinArray(dest, size, digits, digits.length());
 		
 	}
-	// user sent in binary format
+	// user sent binary format
 	else if (prefix == 'b'){
 		Serial.print("\n0b func");
+		// cut out the digits without the prefix
+		digits = digits.substring(2);
 		binStrToBinArray(dest, size, digits, digits.length());
 	}
-	// user sent in decimal format
+	// user sent decimal format
 	else
 	{
-		Serial.print("\ndec func");
+		if (isDigit(prefix)){
+			Serial.print("\ndec func");
+			decStrToBinArray(dest, size, digits, digits.length());
+		}
+		else{
+			Serial.println("\nBad prefix. Did not get number.");
+		}
 	}
 	
 }
@@ -1260,7 +1320,7 @@ void erase_device(uint8_t * ir_in, uint8_t * ir_out){
 
 void printMenu(){
 	Serial.print("\n\nMenu:");
-	Serial.print("\nAll parameters should be passed as {0x, 0b, 0d}");
+	Serial.print("\nAll parameters should be passed as {0x, 0b, decimal}");
 	Serial.print("\na - Read flash");
 	Serial.print("\nb - Detect Chain");
 	Serial.print("\nc - Read User code");
@@ -1345,11 +1405,21 @@ void loop() {
 
 		case 'd':
 			// insert dr
-			nBits = getInteger(20, "Enter amount of bits to shift > ");
+			nBits = getInteger(20, "Enter amount of bits to shift (hex) > ");
+			// nBits = parseNumber()
 			parseNumber(dr_in, nBits, "\nShift DR > ");
 			insert_dr(dr_in, nBits, RUN_TEST_IDLE, dr_out);
+			Serial.print("\nDR  in: ");
+			printArray(dr_in, nBits);
+
 			Serial.print("\nDR out: ");
 			printArray(dr_out, nBits);
+			
+			// TODO: fix arrayToInt to handle and return 64 bits.
+			if (nBits <= 32){ // print the hex value if lenght is not large enough
+				Serial.print(" | 0x"); Serial.print(arrayToInt(dr_out, nBits), HEX);
+			}
+
 			break;
 
 		case 'e':
@@ -1368,8 +1438,16 @@ void loop() {
 			// insert ir
 			parseNumber(ir_in, ir_len, "\nShift IR > ");
 			insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+			Serial.print("\nIR  in: ");
+			printArray(ir_in, ir_len);
+
 			Serial.print("\nIR out: ");
 			printArray(ir_out, ir_len);
+			
+			// TODO: fix arrayToInt to handle and return 64 bits.
+			if (ir_len <= 32){ // print the hex value if lenght is not large enough
+				Serial.print(" | 0x"); Serial.print(arrayToInt(ir_out, ir_len), HEX);
+			}
 			break;
 
 		case 'r':
