@@ -10,7 +10,6 @@
 
 
 import serial
-import time
 from sys import stdout
 
 
@@ -18,7 +17,7 @@ from sys import stdout
 INPUT_CHAR = ">"
 
 # uart propreties
-PORT = "COM7"
+PORT = "COM4"
 BAUD = 115200
 TIMEOUT = 1  # sec
 

@@ -5,12 +5,18 @@
  *		and other simple or complex implementations of custom made operations.
  *
  * @author Michael Vigdorchik, October 2019, REtro team.
- * @version Modifed 2021 version for Intel project.
+ * @version Modifed 2021 version for Intel projects.
+ * 
+ *
+ *
+ * TODO: Create a seperate header and c files for the custom project functions.
  */
 
 
+
 #include "Arduino.h"
-#include "ir.h"
+#include "max10_ir.h"
+
 
 /* 
 comment out this line if you don't wish to see debug info such as
@@ -107,7 +113,7 @@ uint8_t detect_chain(void){
 	}
 
 	// turn idcode_bits into an unsigned integer
-	idcode = arrayToInt(id_arr, 32);
+	idcode = binArrayToInt(id_arr, 32);
 	Serial.print("\nFound IDCODE: 0x"); Serial.print(idcode, HEX);
 
 
@@ -145,6 +151,9 @@ uint8_t detect_chain(void){
 		}
 		counter++;
 	}
+	advance_tap_state(EXIT1_IR);
+	advance_tap_state(UPDATE_IR);
+	advance_tap_state(RUN_TEST_IDLE);
 
 	Serial.println("\n\nDid not find valid IR length\n");
 	return 0;
@@ -154,18 +163,56 @@ uint8_t detect_chain(void){
 /**
  * @brief Convert array of bytes into an integer number, where every byte
  * represents a single bit. Together the array represents a binary number.
- * First element of array is the LSB.
+ * First element of array is the LSB. 
+ * Max length of the given array is 32.
  * @param arr Pointer to the array of bits.
  * @param len Integer that represents the length of the binary array.
  * @return An integer that represents the the value of the array bits.
  */
-uint32_t arrayToInt(uint8_t * arr, int len){
+uint32_t binArrayToInt(uint8_t * arr, int len){
 	
 	uint32_t integer = 0;
   	uint32_t mask = 1;
+
+	if (len > 32){
+		Serial.print("\nbinArrayToInt function, array size is too large");
+		Serial.println("\nBad conversion.");
+		Serial.flush();
+		return -1;
+	}
 	
 	for (int i = 0; i < len; i++) {
 		if (arr[i])
+			integer |= mask;
+		
+		mask = mask << 1;
+	}
+	return integer;
+}
+
+
+/**
+ * @brief Convert the content of a String object into an integer number,
+ * where every byte (char) represents a single bit. 
+ * Together the string represents a binary number.
+ * First element of the string is the LSB.
+ * Max length of the given string is 32.
+ * @param str Pointer to the array of bits.
+ * @return An unsigned integer that represents the the value of the array bits.
+ */
+uint32_t binStringToInt(String str){
+
+	uint32_t integer = 0;
+  	uint32_t mask = 1;
+	
+	if (str.length() > 32){
+		Serial.println("\nbinStrToInt function, string length is too large");
+		Serial.println("Bad conversion.");
+		return -1;
+	}
+	
+	for (int i = 0; i < str.length(); i++) {
+		if (str[i] == '1')
 			integer |= mask;
 		
 		mask = mask << 1;
@@ -229,18 +276,22 @@ uint32_t getInteger(int num_bytes, const char * message){
  * @return -1 for error
  */
 int binStrToBinArray(uint8_t * arr, int arrSize, String str ,int strSize){
-    int i;
+    int i = 0;
+	int j = 0;
 
 	if (strSize > arrSize){
-		Serial.println("\nbinStrToBinArray function,length of string is larger than destination array");
-		Serial.println("Bad Conversion");
+		Serial.print("\nbinStrToBinArray function,length of string is larger than destination array");
+		Serial.println("\nBad Conversion");
         return -1;
 	}
-	flush_reg(arr, arrSize);
+	clear_reg(arr, arrSize);
 
-	for (i = 0; i < strSize; i++)
-        arr[i] = str[i] - 0x30; // ascii to uint
+	// last digit in received string is the least significant
+	for (i = strSize - 1; i >= 0; i--)
+		arr[strSize - 1 - i] = str[i] - 0x30; // ascii to unsigned int
     
+
+	// fill the remaining array elements with zeros
 	for (i = strSize; i < arrSize; i++)
         arr[i] = 0;
 }
@@ -258,19 +309,23 @@ int binStrToBinArray(uint8_t * arr, int arrSize, String str ,int strSize){
  * @return -1 for error
  */
 int hexStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
-	int i,j;
+	int i = 0;
+	int j = 0;
 	uint8_t n = 0;
 	
 	if (strSize * 4 > arrSize){
-		Serial.println("\nhexStrToHexArray function, destination array is not large enough");
-		Serial.println("Bad Conversion");
+		Serial.print("\nhexStrToHexArray function, destination array is not large enough");
+		Serial.print("\ndestination array size: "); Serial.print(arrSize);
+		Serial.print("\nstring size: "); Serial.print(strSize);
+		Serial.println("\nBad Conversion");
+		Serial.flush();
         return -1;
 	}
-	flush_reg(arr, arrSize);
+	clear_reg(arr, arrSize);
 	
 
-	for (i = 0; i < strSize; i++){
-		j = i * 4;  // update destination array index
+	// last digit in received string is the least significant
+	for (i = strSize - 1; i >= 0; i--){
 
 		if (str[i] >= 'a' && str[i] <= 'f'){
 			n = str[i] - 0x57;
@@ -286,7 +341,7 @@ int hexStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
 			Serial.println("Bad Conversion");
 			return -1;
 		}
-		
+
 		// copy nibble bits to destination array (LSB first)
 		if (n & 0x01)
 			arr[j] = 1;
@@ -295,7 +350,9 @@ int hexStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
 		if (n & 0x04)
 			arr[j + 2] = 1;
 		if (n & 0x08)
-			arr[j + 3] = 1;	
+			arr[j + 3] = 1;
+		
+		j += 4;  // update destination array index
 	}
 }
 
@@ -312,19 +369,23 @@ int hexStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
  * @return -1 for error
  */
 int decStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
-	int i,j;
+	int i = 0;
+	int j = 0;
 	uint8_t n = 0;
 	
 	if (strSize * 4 > arrSize){
-		Serial.println("\ndecStrToHexArray function, destination array is not large enough");
-		Serial.println("Bad Conversion");
+		Serial.print("\nhexStrToHexArray function, destination array is not large enough");
+		Serial.print("\ndestination array size: "); Serial.print(arrSize);
+		Serial.print("\nstring size: "); Serial.print(strSize);
+		Serial.println("\nBad Conversion");
+		Serial.flush();
         return -1;
 	}
-	flush_reg(arr, arrSize);
+	clear_reg(arr, arrSize);
 
 
-	for (i = 0; i < strSize; i++){
-		j = i * 4;  // update destination array index
+	// last digit in received string is the least significant
+	for (i = strSize - 1; i >= 0; i--){
 
 		if (str[i] >= '0' && str[i] <= '9'){
 			n = str[i] - 0x30;
@@ -343,7 +404,9 @@ int decStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
 		if (n & 0x04)
 			arr[j + 2] = 1;
 		if (n & 0x08)
-			arr[j + 3] = 1;	
+			arr[j + 3] = 1;
+		
+		j += 4;  // update destination array index
 	}
 }
 
@@ -356,15 +419,16 @@ int decStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
  * @param len Length of the output array in bytes. (max size 32)
  * @param n The integer to convert.
  */
-void intToBinArray(uint8_t * arr, uint32_t n, uint16_t len){
+int intToBinArray(uint8_t * arr, uint32_t n, uint16_t len){
 	if (len > 32)
 	{
-		Serial.println("\nintToArray function, len is larger than 32 bits");
-		Serial.println("Bad Conversion");
+		Serial.print("\nintToBinArray function, array size is larger than 32");
+		Serial.println("\nBad Conversion");
+		return -1;
 	}
 	uint32_t mask = 1;
 	
-	flush_reg(arr, len);
+	clear_reg(arr, len);
 	
 	for (int i = 0; i < len; i++) {
         if (n & mask){
@@ -422,8 +486,7 @@ void fetchNumber(){
 	digits = Serial.readStringUntil('\n');
 
 #ifdef DEBUGSERIAL
-	Serial.print("\nstring: ");
-	Serial.print(digits);
+	Serial.print("\nstring: ");	Serial.print(digits);
 	Serial.print("\nString length = "); Serial.print(digits.length());
 	Serial.flush();
 #endif
@@ -431,29 +494,23 @@ void fetchNumber(){
 
 
 /**
- * @brief Similar to getCharacter function. But used to fetch the prefix value
- * of the user's input of a number. i.e: 0x or 0b. [hex or bin]
- * @return char representing the user's number prefix.
- */
-char fetchPrefix(){
-	char prefix[2] = {0, 0};
+ * TODO: Return the fetched number in a decimal form up to 32 bits.
+ * Use this:
+ * 
+ * byte m = Serial.readBytesUntil('\n', myData, NUM_BYTES);
+    myData[m] = '\0';  //insert null charcater
+    Serial.println(myData) ;///shows: 12A3
+    //------------------------------------
+    unsigned long z = strtol(myData, NULL, 16);  [unsigned long == uint32]
+												
+												
 
-	// wait for user input
-	while (Serial.available() == 0)
-    {	}
-    
-	Serial.readBytes(prefix, 2);
-
-#ifdef DEBUGSERIAL
-    Serial.print("\nprefix: ");
-    Serial.print(prefix[0]); Serial.print(prefix[1]);
-    Serial.flush();
-#endif
-    return prefix[1];
-}
-
-
-/**
+	if i want to return a value instead of assiging to an array,
+	make sure the function can handle a dummy dest pointer. (NULL)
+	if (dest == NULL)
+		return strol(...)
+	hexStrToBinArray(dest, size, digits, digits.length());
+ *
  * @brief Receive a number from the user, in different types of format.
  * 0x , 0b, or decimal.
  * @param message A message for the user.
@@ -462,28 +519,20 @@ char fetchPrefix(){
  */
 void parseNumber(uint8_t * dest, uint16_t size, const char * message){
 	char prefix = '0';
-	uint16_t digitsLen = 0;
 	
 	// first, clean the input buffer
 	while (Serial.available())
 		Serial.read();
-
 	// notify user to input a value
 	Serial.print(message);
-
-	// fetch the format prefix of the number
-	// prefix = fetchPrefix();
 
 	// fetch the number from the user
 	fetchNumber();
 	
-	if (digits.length() < 2){
-		// no prefix, just a decimal number with 1 digit
-	}
-	else{
-		// hex or bin number with prefix or a decimal witout prefix
-		prefix = digits[1];
-	}
+	// received hex or bin number with prefix or a decimal witout prefix
+	if (digits.length() >= 2)
+		prefix = digits[1];	
+	// else, no prefix, just a decimal number with 1 digit
 
 	// user sent hexadecimal format
 	if (prefix == 'x'){
@@ -492,6 +541,12 @@ void parseNumber(uint8_t * dest, uint16_t size, const char * message){
 		digits = digits.substring(2);
 		Serial.print("\nsubstring: "); Serial.print(digits);
 		Serial.print("\nsubstring length: "); Serial.print(digits.length());
+		
+		// if (dest == NULL)
+			// unsigned int z = strtol(digits, NULL, 16);  // not sure it would work with a strin object
+			// Serial.print("\nz: ", HEX); Serial.print(z);
+
+
 		hexStrToBinArray(dest, size, digits, digits.length());
 		
 	}
@@ -505,9 +560,12 @@ void parseNumber(uint8_t * dest, uint16_t size, const char * message){
 	// user sent decimal format
 	else
 	{
-		if (isDigit(prefix)){
+		if (isDigit(prefix) && digits.length() > 0){
 			Serial.print("\ndec func");
-			decStrToBinArray(dest, size, digits, digits.length());
+
+			// decStrToBinArray(dest, size, digits, digits.length());
+			
+			// intToBinArray(dest, z, size);
 		}
 		else{
 			Serial.println("\nBad prefix. Did not get number.");
@@ -579,7 +637,6 @@ void insert_dr(uint8_t * dr_in, uint8_t dr_len, uint8_t end_state, uint8_t * dr_
 }
 
 
-
 /**
 	@brief Insert data of length ir_len to IR, and end the interaction
 	in the state end_state which can be one of the following:
@@ -632,20 +689,19 @@ void insert_ir(uint8_t * ir_in, uint8_t ir_len, uint8_t end_state, uint8_t * ir_
  * @brief Fill the register with zeros
  * @param reg Pointer to the register to flush.
  */
-void flush_reg(uint8_t * reg, uint16_t len){
+void clear_reg(uint8_t * reg, uint16_t len){
 	for (uint16_t i = 0; i < len; i++)
 		reg[i] = 0;
 }
 
 
 /**
- * @brief Clean the IR and DR by calling flush_reg function.
+ * @brief Clean the IR and DR by calling clear_reg function.
  */
 void flush_ir_dr(uint8_t * ir_reg, uint8_t * dr_reg, uint16_t ir_len, uint16_t dr_len){
-	flush_reg(ir_reg, ir_len);
-	flush_reg(dr_reg, dr_len);
+	clear_reg(ir_reg, ir_len);
+	clear_reg(dr_reg, dr_len);
 }
-
 
 
 /**
@@ -701,6 +757,80 @@ uint16_t detect_dr_len(uint8_t * instruction, uint8_t ir_len){
 	return 0;
 }
 
+
+/**
+ * @brief Similarly to discovery command in urjtag, performs a brute force search of each possible
+ * value of the ir register to get its corresponding dr leght in bits.
+ * test logic reset state is being reached after each instructio.
+ * @param first ir value to begin with.
+ * @param last Usually 2^ir_len - 1.
+ * @param ir_in Pointer to ir_in register.
+ * @param ir_out Pointer to ir_out register.
+ * @param dr_in Pointer to dr_in register.
+ * @param dr_out Pointer to dr_out register.
+ * @param maxDRLen Maximum data register allowed.
+*/
+void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out, uint16_t maxDRLen){
+	uint32_t instruction = 0;
+	int counter;
+	int i;
+	
+
+	// discover all dr lengths corresponding to their ir.
+	Serial.print("\n\nDiscovery of instructions from 0x"); Serial.print(first, HEX);
+	Serial.print(" to 0x"); Serial.println(last, HEX);
+	
+	
+	for (instruction=first ; instruction <= last; instruction++){
+		// reset tap
+		reset_tap();
+		counter = 0;
+
+		
+		intToBinArray(ir_in, ISC_ENABLE, ir_len);
+		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+		HC; HC;
+		
+		
+		// prepare to shift instruction
+		intToBinArray(ir_in, instruction, ir_len);
+
+		// shift instruction
+		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+
+		/* some delay to process the instruction */
+		HC; HC; HC; HC;  // a couple of clock cycles
+		
+		advance_tap_state(SELECT_DR);
+		advance_tap_state(CAPTURE_DR);
+
+		digitalWrite(TDI, 1);
+		
+		for (i = 0; i < maxDRLen; i++){
+			advance_tap_state(SHIFT_DR);
+		}
+
+		digitalWrite(TDI, 0);
+		advance_tap_state(SHIFT_DR);
+		digitalWrite(TDI, 1);
+
+		for (i = 0; i < maxDRLen; i++){
+			counter++;
+			advance_tap_state(SHIFT_DR);
+
+			if (digitalRead(TDO) == 0)
+				break;
+		}
+		
+		if (counter == maxDRLen){
+			counter = -1; // tdo stuck at 1
+		}
+		Serial.print("\nDetecting DR length for IR 0x");
+		Serial.print(instruction, HEX); Serial.print(" ... ");
+		Serial.print(counter);
+	}
+	Serial.println("\n\n   Done");
+}
 
 
 /**
@@ -1005,7 +1135,6 @@ void advance_tap_state(uint8_t next_state){
 }
 
 
-
 /**
  * @brief Waits for the incoming of a special character to Serial.
  * @return The input char.
@@ -1028,7 +1157,7 @@ char serialEvent(char character) {
 
 
 /**
- * @brief Prints the given array.
+ * @brief Prints the given array from last element to first.
 */
 void printArray(uint8_t * arr, uint16_t len){
 	for (int16_t i = len-1; i >= 0; i--){
@@ -1053,9 +1182,12 @@ void sendDataToHost(uint8_t * buf, uint16_t chunk_size)
 }
 
 
+
+
 /* --------------------------------------------------------------------------------------- */
 /* ------------------- My custom functions for MAX10 FPGA project -------------------------*/
 /* --------------------------------------------------------------------------------------- */
+/*
 
 /**
  * @brief Read user defined 32 bit code of MAX10 FPGA.
@@ -1068,13 +1200,13 @@ void sendDataToHost(uint8_t * buf, uint16_t chunk_size)
 uint32_t read_user_code(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t * dr_out){
 	uint32_t usercode = 0;
 
-	flush_reg(dr_out, MAX_DR_LEN);
+	clear_reg(dr_out, MAX_DR_LEN);
 
 	intToBinArray(ir_in, USERCODE, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 	insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
 	
-	usercode = arrayToInt(dr_out, 32);
+	usercode = binArrayToInt(dr_out, 32);
 
 	Serial.print("\nUSERCODE: 0x"); Serial.print(usercode ,HEX);
 	return usercode;
@@ -1109,7 +1241,7 @@ void read_ufm_range(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t 
 		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 		
 		// shift address value
-		flush_reg(dr_in, 32);
+		clear_reg(dr_in, 32);
 		intToBinArray(dr_in, j, 23);
 		insert_dr(dr_in, 23, RUN_TEST_IDLE, dr_out);
 		
@@ -1118,16 +1250,15 @@ void read_ufm_range(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t 
 		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
 		// read data
-		flush_reg(dr_in, 32);
+		clear_reg(dr_in, 32);
 		insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
 
 		// print address and corresponding data
 		Serial.print("\n0x"); Serial.print(j, HEX);
-		Serial.print(": 0x"); Serial.print(arrayToInt(dr_out, 32), HEX);
+		Serial.print(": 0x"); Serial.print(binArrayToInt(dr_out, 32), HEX);
 		Serial.flush();
 	}
 }
-
 
 
 /**
@@ -1158,7 +1289,7 @@ void read_ufm_range_burst(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, ui
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
 	// shift address value
-	flush_reg(dr_in, 32);
+	clear_reg(dr_in, 32);
 	intToBinArray(dr_in, start, 23);
 	insert_dr(dr_in, 23, RUN_TEST_IDLE, dr_out);
 
@@ -1166,7 +1297,7 @@ void read_ufm_range_burst(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, ui
 	intToBinArray(ir_in, ISC_READ, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
-	flush_reg(dr_in, 32);
+	clear_reg(dr_in, 32);
 
 	for (uint32_t j=start ; j < (start + num); j += 4){
 		// read data in burst fashion
@@ -1174,7 +1305,7 @@ void read_ufm_range_burst(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, ui
 
 		// print address and corresponding data
 		Serial.print("\n0x"); Serial.print(j, HEX);
-		Serial.print(": 0x"); Serial.print(arrayToInt(dr_out, 32), HEX);
+		Serial.print(": 0x"); Serial.print(binArrayToInt(dr_out, 32), HEX);
 		Serial.flush();
 	}
 }
@@ -1195,8 +1326,8 @@ void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_
 	Serial.print("\nReading flash address range");
 	
 	while (1){
-		flush_reg(dr_in, MAX_DR_LEN);
-		flush_reg(dr_out, MAX_DR_LEN);
+		clear_reg(dr_in, MAX_DR_LEN);
+		clear_reg(dr_out, MAX_DR_LEN);
 		
 		reset_tap();
 
@@ -1223,81 +1354,6 @@ void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_
 
 
 /**
- * @brief Similarly to discovery command in urjtag, performs a brute force search of each possible
- * value of the ir register to get its corresponding dr leght in bits.
- * test logic reset state is being reached after each instructio.
- * @param first ir value to begin with.
- * @param last Usually 2^ir_len - 1.
- * @param ir_in Pointer to ir_in register.
- * @param ir_out Pointer to ir_out register.
- * @param dr_in Pointer to dr_in register.
- * @param dr_out Pointer to dr_out register.
- * @param maxDRLen Maximum data register allowed.
-*/
-void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out, uint16_t maxDRLen){
-	uint32_t instruction = 0;
-	int counter;
-	int i;
-	
-
-	// discover all dr lengths corresponding to their ir.
-	Serial.print("\n\nDiscovery of instructions from 0x"); Serial.print(first, HEX);
-	Serial.print(" to 0x"); Serial.println(last, HEX);
-	
-	
-	for (instruction=first ; instruction <= last; instruction++){
-		// reset tap
-		reset_tap();
-		counter = 0;
-
-		
-		intToBinArray(ir_in, ISC_ENABLE, ir_len);
-		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-		HC; HC;
-		
-		
-		// prepare to shift instruction
-		intToBinArray(ir_in, instruction, ir_len);
-
-		// shift instruction
-		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-
-		/* some delay to process the instruction */
-		HC; HC; HC; HC;  // a couple of clock cycles
-		
-		advance_tap_state(SELECT_DR);
-		advance_tap_state(CAPTURE_DR);
-
-		digitalWrite(TDI, 1);
-		
-		for (i = 0; i < maxDRLen; i++){
-			advance_tap_state(SHIFT_DR);
-		}
-
-		digitalWrite(TDI, 0);
-		advance_tap_state(SHIFT_DR);
-		digitalWrite(TDI, 1);
-
-		for (i = 0; i < maxDRLen; i++){
-			counter++;
-			advance_tap_state(SHIFT_DR);
-
-			if (digitalRead(TDO) == 0)
-				break;
-		}
-		
-		if (counter == maxDRLen){
-			counter = -1; // tdo stuck at 1
-		}
-		Serial.print("\nDetecting DR length for IR 0x");
-		Serial.print(instruction, HEX); Serial.print(" ... ");
-		Serial.print(counter);
-	}
-	Serial.println("\n\n   Done");
-}
-
-
-/**
  * @brief Erase the entire flash
  * @param ir_in Pointer to ir_in register.
  * @param ir_out Pointer to ir_out register.
@@ -1307,7 +1363,7 @@ void erase_device(uint8_t * ir_in, uint8_t * ir_out){
 	if (getCharacter("\nAre you sure ? (y/n)") == 'y'){
 		Serial.println("\nErasing device ...");
 
-		flush_reg(ir_in, ir_len);
+		clear_reg(ir_in, ir_len);
 		intToBinArray(ir_in, ISC_ERASE, ir_len);
 		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 		delay(2000);
@@ -1319,6 +1375,7 @@ void erase_device(uint8_t * ir_in, uint8_t * ir_out){
 
 
 void printMenu(){
+	Serial.flush();	
 	Serial.print("\n\nMenu:");
 	Serial.print("\nAll parameters should be passed as {0x, 0b, decimal}");
 	Serial.print("\na - Read flash");
@@ -1327,9 +1384,11 @@ void printMenu(){
 	Serial.print("\nd - Insert dr");
 	Serial.print("\ne - Erase");
 	Serial.print("\nf - Discovery");
+	Serial.print("\ng - Detect DR length");
 	Serial.print("\ni - Insert ir");
 	Serial.print("\nr - Reset TAP");
 	Serial.print("\nz - Exit");
+	Serial.flush();
 }
 
 
@@ -1371,11 +1430,15 @@ void loop() {
 
 	// detect chain and read idcode
 	ir_len = detect_chain();
-	Serial.print("IR length: "); Serial.print(ir_len, DEC);
+	Serial.print("IR length: "); Serial.print(ir_len);
+	
+	
+	ir_len = 10;
 
 	// define ir register according to ir lenght
 	uint8_t ir_in[ir_len] = {0};
 	uint8_t ir_out[ir_len] = {0};
+
 
 	// enter user menu
 	while (1){
@@ -1394,7 +1457,7 @@ void loop() {
 		case 'b':
 			// detect chain and read idcode
 			ir_len = detect_chain();
-			Serial.print("IR length: "); Serial.print(ir_len, DEC);
+			Serial.print("IR length: "); Serial.print(ir_len);
 			break;
 
 		case 'c':
@@ -1405,20 +1468,21 @@ void loop() {
 
 		case 'd':
 			// insert dr
+		
 			nBits = getInteger(20, "Enter amount of bits to shift (hex) > ");
 			// nBits = parseNumber()
 			parseNumber(dr_in, nBits, "\nShift DR > ");
 			insert_dr(dr_in, nBits, RUN_TEST_IDLE, dr_out);
+			
 			Serial.print("\nDR  in: ");
 			printArray(dr_in, nBits);
+			if (nBits <= 32) // print the hex value if lenght is not large enough
+				Serial.print(" | 0x"); Serial.print(binArrayToInt(dr_in, nBits), HEX);
 
 			Serial.print("\nDR out: ");
 			printArray(dr_out, nBits);
-			
-			// TODO: fix arrayToInt to handle and return 64 bits.
-			if (nBits <= 32){ // print the hex value if lenght is not large enough
-				Serial.print(" | 0x"); Serial.print(arrayToInt(dr_out, nBits), HEX);
-			}
+			if (nBits <= 32) // print the hex value if lenght is not large enough
+				Serial.print(" | 0x"); Serial.print(binArrayToInt(dr_out, nBits), HEX);
 
 			break;
 
@@ -1433,21 +1497,27 @@ void loop() {
 					  getInteger(20,"\nFinal IR > "),
 					  ir_in,ir_out, getInteger(20,"Max allowed DR length > "));
 			break;
+		
+		case 'g':
+			// detect current dr length
+			Serial.print("\nDR length: ");
+			Serial.print(detect_dr_len(ir_in, ir_len), DEC);
+			break;
 
 		case 'i':
 			// insert ir
 			parseNumber(ir_in, ir_len, "\nShift IR > ");
 			insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+			
 			Serial.print("\nIR  in: ");
 			printArray(ir_in, ir_len);
+			if (ir_len <= 32) // print the hex value if lenght is not large enough
+				Serial.print(" | 0x"); Serial.print(binArrayToInt(ir_in, ir_len), HEX);
 
 			Serial.print("\nIR out: ");
 			printArray(ir_out, ir_len);
-			
-			// TODO: fix arrayToInt to handle and return 64 bits.
-			if (ir_len <= 32){ // print the hex value if lenght is not large enough
-				Serial.print(" | 0x"); Serial.print(arrayToInt(ir_out, ir_len), HEX);
-			}
+			if (ir_len <= 32) // print the hex value if lenght is not large enough
+				Serial.print(" | 0x"); Serial.print(binArrayToInt(ir_out, ir_len), HEX);
 			break;
 
 		case 'r':
