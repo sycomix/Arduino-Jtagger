@@ -13,7 +13,6 @@
  */
 
 
-
 #include "Arduino.h"
 #include "max10_ir.h"
 
@@ -161,6 +160,25 @@ uint8_t detect_chain(void){
 
 
 /**
+ * @brief Convert char into a hexadecimal number
+ * @param ch Character to convert
+ * @return Hexadecimal representation of the char, or -1 if out of bounds.
+ */
+int chr2hex(char ch){
+	if (ch >= 'a' && ch <= 'f')
+		return ch - 0x57;
+	
+	if (ch >= 'A' && ch <= 'F')
+		return ch - 0x37;
+	
+	if (ch >= '0' && ch <= '9')
+		return ch - 0x30;
+	
+    return -1;
+}
+
+
+/**
  * @brief Convert array of bytes into an integer number, where every byte
  * represents a single bit. Together the array represents a binary number.
  * First element of array is the LSB. 
@@ -281,7 +299,10 @@ int binStrToBinArray(uint8_t * arr, int arrSize, String str ,int strSize){
 
 	if (strSize > arrSize){
 		Serial.print("\nbinStrToBinArray function,length of string is larger than destination array");
+		Serial.print("\ndestination array size: "); Serial.print(arrSize);
+		Serial.print("\nstring requires: "); Serial.print(strSize);
 		Serial.println("\nBad Conversion");
+		Serial.flush();
         return -1;
 	}
 	clear_reg(arr, arrSize);
@@ -311,15 +332,30 @@ int binStrToBinArray(uint8_t * arr, int arrSize, String str ,int strSize){
 int hexStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
 	int i = 0;
 	int j = 0;
+	int vacantBits = 0;
 	uint8_t n = 0;
 	
 	if (strSize * 4 > arrSize){
-		Serial.print("\nhexStrToHexArray function, destination array is not large enough");
-		Serial.print("\ndestination array size: "); Serial.print(arrSize);
-		Serial.print("\nstring size: "); Serial.print(strSize);
-		Serial.println("\nBad Conversion");
-		Serial.flush();
-        return -1;
+		// check how many bits left on arr that can be populated with bits from the last digit.
+		vacantBits = 4 - ((strSize * 4) - arrSize);  // nibble size in bits - (str digit * nibble size) - arr size in bits
+		// maybe the last digit can fit in the 1,2, or 3 bits of the last digit
+		if (vacantBits <= 0)
+		{
+			Serial.print("\nhexStrToBinArray function, destination array is not large enough");
+			Serial.print("\ndestination array size in bits: "); Serial.print(arrSize);
+			Serial.print("\nstring requires size: "); Serial.print(strSize * 4);
+			Serial.print("\nVacant bits: "); Serial.print(vacantBits);
+			Serial.println("\nBad Conversion");
+			Serial.flush();
+			return -1;
+		}
+
+		if (vacantBits == 3 && chr2hex(str[0]) > 7)
+			Serial.print("\nWarning, last digit is to large to fit register. Expect bad conversion.");
+		if (vacantBits == 2 && chr2hex(str[0]) > 3)
+			Serial.print("\nWarning, last digit is to large to fit register. Expect bad conversion.");
+		if (vacantBits == 1 && chr2hex(str[0]) > 1)
+			Serial.print("\nWarning, last digit is to large to fit register. Expect bad conversion.");
 	}
 	clear_reg(arr, arrSize);
 	
@@ -327,21 +363,37 @@ int hexStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
 	// last digit in received string is the least significant
 	for (i = strSize - 1; i >= 0; i--){
 
-		if (str[i] >= 'a' && str[i] <= 'f'){
-			n = str[i] - 0x57;
-		}
-		else if (str[i] >= 'A' && str[i] <= 'F'){
-			n = str[i] - 0x37;
-		}
-		else if (str[i] >= '0' && str[i] <= '9'){
-			n = str[i] - 0x30;
-		}
-		else{
+		n = chr2hex(str[i]);
+		
+		if (n == -1){
 			Serial.println("\nhexStrToHexArray function, bad digit type");
 			Serial.println("Bad Conversion");
 			return -1;
 		}
+		
+		// do this if we reached the last digit and arrSize < strSize * 4
+		if (i == 0 && vacantBits > 0)
+		{
+			switch (vacantBits)
+			{
+			case 3: // only hex digits [0, 7] may be written to last 3 bits of arr
+				if (n & 0x04)
+					arr[j + 2] = 1;
 
+			case 2: // only hex digits [0, 3] may be written to last 2 bits of arr
+				if (n & 0x02)
+					arr[j + 1] = 1;
+			
+			case 1: // only hex digits [0, 1] may be written to last 1 bit of arr
+				if (n & 0x01)
+					arr[j] = 1;
+			default:
+				break;  // break out of switch statement
+			}
+			break;  // break out of for loop
+		}
+		
+		
 		// copy nibble bits to destination array (LSB first)
 		if (n & 0x01)
 			arr[j] = 1;
@@ -371,15 +423,31 @@ int hexStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
 int decStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
 	int i = 0;
 	int j = 0;
+	int vacantBits = 0;
 	uint8_t n = 0;
 	
 	if (strSize * 4 > arrSize){
-		Serial.print("\nhexStrToHexArray function, destination array is not large enough");
-		Serial.print("\ndestination array size: "); Serial.print(arrSize);
-		Serial.print("\nstring size: "); Serial.print(strSize);
-		Serial.println("\nBad Conversion");
-		Serial.flush();
-        return -1;
+
+		// check how many bits left on arr that can be populated with bits from the last digit.
+		vacantBits = 4 - ((strSize * 4) - arrSize);  // nibble size in bits - (str digit * nibble size) - arr size in bits
+		// maybe the last digit can fit in the 1,2, or 3 bits of the last digit
+		if (vacantBits <= 0)
+		{
+			Serial.print("\ndecStrToBinArray function, destination array is not large enough");
+			Serial.print("\ndestination array size in bits: "); Serial.print(arrSize);
+			Serial.print("\nstring requires size: "); Serial.print(strSize * 4);
+			Serial.print("\nVacant bits: "); Serial.print(vacantBits);
+			Serial.println("\nBad Conversion");
+			Serial.flush();
+			return -1;
+		}
+
+		if (vacantBits == 3 && chr2hex(str[0]) > 7)
+			Serial.print("\nWarning, last digit is to large to fit register. Expect bad conversion.");
+		if (vacantBits == 2 && chr2hex(str[0]) > 3)
+			Serial.print("\nWarning, last digit is to large to fit register. Expect bad conversion.");
+		if (vacantBits == 1 && chr2hex(str[0]) > 1)
+			Serial.print("\nWarning, last digit is to large to fit register. Expect bad conversion.");
 	}
 	clear_reg(arr, arrSize);
 
@@ -387,15 +455,39 @@ int decStrToBinArray(uint8_t * arr, int arrSize, String str, int strSize){
 	// last digit in received string is the least significant
 	for (i = strSize - 1; i >= 0; i--){
 
-		if (str[i] >= '0' && str[i] <= '9'){
-			n = str[i] - 0x30;
-		}
-		else{
-			Serial.println("\ndecStrToHexArray function, bad digit type");
+		n = chr2hex(str[i]);
+		
+		if (n == -1){
+			Serial.println("\nhexStrToHexArray function, bad digit type");
 			Serial.println("Bad Conversion");
 			return -1;
 		}
 		
+
+		// do this if we reached the last digit and arrSize < strSize * 4
+		if (i == 0 && vacantBits > 0)
+		{
+			switch (vacantBits)
+			{
+			case 3: // only hex digits [0, 7] may be written to last 3 bits of arr
+				if (n & 0x04)
+					arr[j + 2] = 1;
+
+			case 2: // only hex digits [0, 3] may be written to last 2 bits of arr
+				if (n & 0x02)
+					arr[j + 1] = 1;
+			
+			case 1: // only hex digits [0, 1] may be written to last 1 bit of arr
+				if (n & 0x01)
+					arr[j] = 1;
+			default:
+				break;  // break out of switch statement
+			}
+			break;  // break out of for loop
+		}
+
+
+
 		// copy nibble bits to destination array (LSB first)
 		if (n & 0x01)
 			arr[j] = 1;
@@ -550,6 +642,7 @@ void parseNumber(uint8_t * dest, uint16_t size, const char * message){
 		hexStrToBinArray(dest, size, digits, digits.length());
 		
 	}
+
 	// user sent binary format
 	else if (prefix == 'b'){
 		Serial.print("\n0b func");
@@ -557,15 +650,31 @@ void parseNumber(uint8_t * dest, uint16_t size, const char * message){
 		digits = digits.substring(2);
 		binStrToBinArray(dest, size, digits, digits.length());
 	}
+
 	// user sent decimal format
 	else
 	{
 		if (isDigit(prefix) && digits.length() > 0){
 			Serial.print("\ndec func");
-
-			// decStrToBinArray(dest, size, digits, digits.length());
+			// construct a whole decimal from the string
 			
-			// intToBinArray(dest, z, size);
+			// Prepare the character array (the buffer)
+			char tmp[digits.length() + 1];  // with 1 extra char for '/0'
+			
+			// convert String to char array
+			digits.toCharArray(tmp, digits.length() + 1);
+			// add null terminator
+			tmp[digits.length()] = '\0';
+
+			
+			Serial.print("\ntoCharArray: ");
+			for (int k = 0; k < strlen(tmp) + 1; k++)
+				Serial.print(tmp[k], HEX);			
+
+			uint32_t z = strtoul(tmp, NULL, 10);
+			Serial.print("\nConverted decimal: ");Serial.print(z);
+			
+			intToBinArray(dest, z, size);
 		}
 		else{
 			Serial.println("\nBad prefix. Did not get number.");
@@ -577,7 +686,7 @@ void parseNumber(uint8_t * dest, uint16_t size, const char * message){
 
 /**
 	@brief Return to TEST LOGIC RESET state of the TAP FSM.
-	Invoke 5 TCK cycles accompanied with TMS logic state 1.
+	Apply 5 TCK cycles accompanied with TMS logic state 1.
 */
 void reset_tap(void){
 	Serial.println("\nresetting tap");
@@ -829,6 +938,7 @@ void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out,
 		Serial.print(instruction, HEX); Serial.print(" ... ");
 		Serial.print(counter);
 	}
+	reset_tap();
 	Serial.println("\n\n   Done");
 }
 
@@ -1377,7 +1487,7 @@ void erase_device(uint8_t * ir_in, uint8_t * ir_out){
 void printMenu(){
 	Serial.flush();	
 	Serial.print("\n\nMenu:");
-	Serial.print("\nAll parameters should be passed as {0x, 0b, decimal}");
+	Serial.print("\nAll parameters should be passed in the format {0x || 0b || decimal}");
 	Serial.print("\na - Read flash");
 	Serial.print("\nb - Detect Chain");
 	Serial.print("\nc - Read User code");
@@ -1397,14 +1507,13 @@ void setup(){
 	pinMode(TCK, OUTPUT);
 	pinMode(TMS, OUTPUT);
 	pinMode(TDI, OUTPUT);
-	pinMode(TDO, INPUT);
+	pinMode(TDO, INPUT_PULLUP);
 	pinMode(TRST, OUTPUT);
 
 	/* initial pins state */
 	digitalWrite(TCK, 0);
 	digitalWrite(TMS, 1);
 	digitalWrite(TDI, 1);
-	digitalWrite(TDO, HIGH); // to use PullUp
 	digitalWrite(TRST, 1);
 
 	/* Initialize serial communication */
@@ -1432,20 +1541,17 @@ void loop() {
 	ir_len = detect_chain();
 	Serial.print("IR length: "); Serial.print(ir_len);
 	
-	
-	ir_len = 10;
-
-	// define ir register according to ir lenght
+	// define ir register according to ir length
 	uint8_t ir_in[ir_len] = {0};
 	uint8_t ir_out[ir_len] = {0};
 
+	reset_tap();
 
-	// enter user menu
+
+
 	while (1){
 		printMenu();
 		command = getCharacter("\nChoose command > ");
-		
-		reset_tap();
 		
 		switch (command)
 		{
