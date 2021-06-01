@@ -19,7 +19,7 @@ INPUT_CHAR = ">"
 # uart propreties
 PORT = "COM4"
 BAUD = 115200
-TIMEOUT = 1  # sec
+TIMEOUT = 0.5  # sec
 
 
 s = serial.Serial(port=PORT, baudrate=BAUD, timeout=TIMEOUT)
@@ -57,8 +57,8 @@ def reader():
             if INPUT_CHAR in recv:  # user input is required
                 return True
         
-        except serial.SerialException:
-            print("Reader TimeoutError")
+        except serial.SerialTimeoutException:
+            print("Reader SerialTimeoutException")
             break
     return None
     

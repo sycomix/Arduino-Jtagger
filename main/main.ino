@@ -27,7 +27,7 @@ TAP state transitions.
 comment out this line if you don't wish to see debug info regarding
 user input via serial port.
 */
-#define DEBUGSERIAL
+// #define DEBUGSERIAL
 
 
 // Define JTAG pins as you wish
@@ -36,6 +36,8 @@ user input via serial port.
 #define TDI 9
 #define TDO 10
 #define TRST 11
+#define RELAY 12
+
 
 #define MAX_DR_LEN 32
 #ifndef MAX_DR_LEN
@@ -229,7 +231,7 @@ uint32_t binStringToInt(String str){
 		return -1;
 	}
 	
-	for (int i = 0; i < str.length(); i++) {
+	for (int i = str.length() - 1; i >= 0; i--) {	
 		if (str[i] == '1')
 			integer |= mask;
 		
@@ -586,30 +588,16 @@ void fetchNumber(){
 
 
 /**
- * TODO: Return the fetched number in a decimal form up to 32 bits.
- * Use this:
- * 
- * byte m = Serial.readBytesUntil('\n', myData, NUM_BYTES);
-    myData[m] = '\0';  //insert null charcater
-    Serial.println(myData) ;///shows: 12A3
-    //------------------------------------
-    unsigned long z = strtol(myData, NULL, 16);  [unsigned long == uint32]
-												
-												
-
-	if i want to return a value instead of assiging to an array,
-	make sure the function can handle a dummy dest pointer. (NULL)
-	if (dest == NULL)
-		return strol(...)
-	hexStrToBinArray(dest, size, digits, digits.length());
  *
  * @brief Receive a number from the user, in different types of format.
  * 0x , 0b, or decimal.
+ * with an option to return the fetched number as is in a uint32 format.
+ * 
  * @param message A message for the user.
  * @param dest Destination array. Will contain user's input value.
  * @param size Size (in bytes) of the destination array. 
  */
-void parseNumber(uint8_t * dest, uint16_t size, const char * message){
+uint32_t parseNumber(uint8_t * dest, uint16_t size, const char * message){
 	char prefix = '0';
 	
 	// first, clean the input buffer
@@ -628,26 +616,37 @@ void parseNumber(uint8_t * dest, uint16_t size, const char * message){
 
 	// user sent hexadecimal format
 	if (prefix == 'x'){
-		Serial.print("\n0x func");
 		// cut out the digits without the prefix
 		digits = digits.substring(2);
-		Serial.print("\nsubstring: "); Serial.print(digits);
-		Serial.print("\nsubstring length: "); Serial.print(digits.length());
 		
-		// if (dest == NULL)
-			// unsigned int z = strtol(digits, NULL, 16);  // not sure it would work with a strin object
-			// Serial.print("\nz: ", HEX); Serial.print(z);
-
+		
+		// user wants the function to return the fetched number as is without storing in destination array
+		if (dest == NULL){
+			// Prepare the character array (the buffer)
+			char tmp[digits.length() + 1];  // with 1 extra char for '/0'
+			// convert String to char array
+			digits.toCharArray(tmp, digits.length() + 1);
+			// add null terminator
+			tmp[digits.length()] = '\0';
+			// convert to unsigned int
+			uint32_t z = strtoul(tmp, NULL, 16);
+			return z;
+		}
 
 		hexStrToBinArray(dest, size, digits, digits.length());
-		
 	}
 
 	// user sent binary format
 	else if (prefix == 'b'){
-		Serial.print("\n0b func");
 		// cut out the digits without the prefix
 		digits = digits.substring(2);
+	
+		// convert binary to integer and return
+		if (dest == NULL){
+			uint32_t z = binStringToInt(digits);
+			return z;
+		}
+
 		binStrToBinArray(dest, size, digits, digits.length());
 	}
 
@@ -655,32 +654,24 @@ void parseNumber(uint8_t * dest, uint16_t size, const char * message){
 	else
 	{
 		if (isDigit(prefix) && digits.length() > 0){
-			Serial.print("\ndec func");
 			// construct a whole decimal from the string
-			
-			// Prepare the character array (the buffer)
-			char tmp[digits.length() + 1];  // with 1 extra char for '/0'
-			
-			// convert String to char array
+			char tmp[digits.length() + 1];
 			digits.toCharArray(tmp, digits.length() + 1);
-			// add null terminator
 			tmp[digits.length()] = '\0';
-
-			
-			Serial.print("\ntoCharArray: ");
-			for (int k = 0; k < strlen(tmp) + 1; k++)
-				Serial.print(tmp[k], HEX);			
-
 			uint32_t z = strtoul(tmp, NULL, 10);
-			Serial.print("\nConverted decimal: ");Serial.print(z);
+			
+			if (dest == NULL){
+				return z;
+			}
 			
 			intToBinArray(dest, z, size);
 		}
+
 		else{
 			Serial.println("\nBad prefix. Did not get number.");
 		}
 	}
-	
+	return 0;
 }
 
 
@@ -1464,24 +1455,121 @@ void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_
 
 
 /**
+ * According to BSDL
+ * 
+ *   "FLOW_ERASE " &
+    "INITIALIZE " &
+        "(ISC_ADDRESS_SHIFT 23:000000 WAIT TCK 1)" &
+      "(DSM_CLEAR                   WAIT 350.0e-3)," &
+ *
  * @brief Erase the entire flash
  * @param ir_in Pointer to ir_in register.
  * @param ir_out Pointer to ir_out register.
  */
 void erase_device(uint8_t * ir_in, uint8_t * ir_out){
 
-	if (getCharacter("\nAre you sure ? (y/n)") == 'y'){
+	if (getCharacter("\nAre you sure ? (y/n) > ") == 'y'){
 		Serial.println("\nErasing device ...");
 
 		clear_reg(ir_in, ir_len);
-		intToBinArray(ir_in, ISC_ERASE, ir_len);
+		clear_reg(dr_in, 32);
+
+
+		intToBinArray(ir_in, ISC_ENABLE, ir_len);
 		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-		delay(2000);
+
+		delay(10);
+
+		intToBinArray(ir_in, ISC_ADDRESS_SHIFT, ir_len);
+		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+
+		
+		intToBinArray(dr_in, 0x00, 23);
+		insert_dr(dr_in, 23, RUN_TEST_IDLE, dr_out);
+
+		delay(10);
+
+		intToBinArray(ir_in, DSM_CLEAR, ir_len);
+		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+
+		delay(400);
 	}
 	else{
 		Serial.println("\nReturning to menu");
 	}
 }
+
+
+/**
+ * Elef Ramot experiment
+ */
+void erase_and_stop(uint8_t * ir_in, uint8_t * ir_out){
+	uint8_t i = 0;
+	uint32_t wait = parseNumber(NULL, 32, "Enter amount of microseconds to wait > ");
+	Serial.print("\nWait after till stop: "); Serial.print(wait);
+	
+	// for synching with sampler
+	pinMode(2, OUTPUT);
+	digitalWrite(2, HIGH);
+
+	
+	clear_reg(ir_in, ir_len);
+	clear_reg(dr_in, 32);
+
+	intToBinArray(ir_in, ISC_ENABLE, ir_len);
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+
+	delay(10);
+
+	intToBinArray(ir_in, ISC_ADDRESS_SHIFT, ir_len);
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+
+	intToBinArray(dr_in, 0x00, 23);
+	insert_dr(dr_in, 23, RUN_TEST_IDLE, dr_out);
+
+	delay(1);
+
+	// prepare the last IR that will start the erase
+	intToBinArray(ir_in, DSM_CLEAR, ir_len);
+	
+	
+	advance_tap_state(SELECT_DR);
+	advance_tap_state(SELECT_IR);
+	advance_tap_state(CAPTURE_IR);
+	advance_tap_state(SHIFT_IR);
+
+	// shift data bits into the IR. make sure that first bit is LSB
+	for (i = 0; i < ir_len - 1; i++)
+	{
+		digitalWrite(TDI, ir_in[i]);
+		digitalWrite(TCK, 0); HC;
+		digitalWrite(TCK, 1); HC;
+		ir_out[i] = digitalRead(TDO);  // read the shifted out bits . LSB first
+	}
+
+	// read and write the last IR bit and continue to the end state
+	digitalWrite(TDI, ir_in[i]);
+	advance_tap_state(EXIT1_IR);	
+	ir_out[i] = digitalRead(TDO);
+	
+	
+	// start erase
+	advance_tap_state(UPDATE_IR);
+	advance_tap_state(RUN_TEST_IDLE);
+	
+	digitalWrite(2, LOW);
+
+	delayMicroseconds(wait);
+	
+	// stop the erase
+	digitalWrite(RELAY, LOW);
+	digitalWrite(2, HIGH);
+
+	// power up
+	delay(1000);
+	digitalWrite(RELAY, HIGH);
+}
+
 
 
 void printMenu(){
@@ -1497,6 +1585,7 @@ void printMenu(){
 	Serial.print("\ng - Detect DR length");
 	Serial.print("\ni - Insert ir");
 	Serial.print("\nr - Reset TAP");
+	Serial.print("\nw - Erase and Stop");
 	Serial.print("\nz - Exit");
 	Serial.flush();
 }
@@ -1509,8 +1598,10 @@ void setup(){
 	pinMode(TDI, OUTPUT);
 	pinMode(TDO, INPUT_PULLUP);
 	pinMode(TRST, OUTPUT);
+	pinMode(RELAY, OUTPUT);
 
 	/* initial pins state */
+	digitalWrite(RELAY, HIGH);
 	digitalWrite(TCK, 0);
 	digitalWrite(TMS, 1);
 	digitalWrite(TDI, 1);
@@ -1521,7 +1612,7 @@ void setup(){
 	while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
 	}
-	Serial.setTimeout(1000); // set timeout for various serial R/W funcs
+	Serial.setTimeout(500); // set timeout for various serial R/W funcs
 	Serial.println("Ready...");
 }
 
@@ -1573,10 +1664,8 @@ void loop() {
 			break;
 
 		case 'd':
-			// insert dr
-		
-			nBits = getInteger(20, "Enter amount of bits to shift (hex) > ");
-			// nBits = parseNumber()
+			// insert dr	
+			nBits = parseNumber(NULL, 32, "Enter amount of bits to shift > ");
 			parseNumber(dr_in, nBits, "\nShift DR > ");
 			insert_dr(dr_in, nBits, RUN_TEST_IDLE, dr_out);
 			
@@ -1629,6 +1718,11 @@ void loop() {
 		case 'r':
 			// reset tap
 			reset_tap();
+			break;
+		
+		case 'w':
+			// erase and stop experiment
+			erase_and_stop(ir_in, ir_out);
 			break;
 		
 		case 'z':
