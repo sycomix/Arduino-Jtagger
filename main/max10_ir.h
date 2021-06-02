@@ -21,15 +21,16 @@
 #define BGP_ENABLE          0x199
 
 #define ISC_DISABLE         0x201
+#define LOCK                0x202
 #define ISC_ADDRESS_SHIFT   0x203
 #define ISC_READ            0x205
+#define UNLOCK              0x208
 #define ISC_NOOP            0x210
+#define ISC_CLAMP_ANABLE    0x233
 #define ISC_ENABLE          0x2cc
 #define ISC_ERASE           0x2f2
 #define ISC_PROGRAM         0x2f4
 
-#define LOCK                0x202
-#define UNLOCK              0x208
 
 #define PRIVATE_1           0x240
 #define PRIVATE_2           0x230
@@ -37,10 +38,18 @@
 #define PRIVATE_4           0x231
 
 #define DSM_VERIFY          0x307
-#define DSM_ICB_PROGRAM     0x3f4
 #define DSM_CLEAR           0x3f2
+#define DSM_ICB_PROGRAM     0x3f4
 #define BYPASS              0x3ff
 
 // #define NEW_1
 // #define NEW_2
 // #define NEW_3
+
+/*
+0x90 4 
+0x206 32 
+0x207 32 
+0x303 16 
+
+*/

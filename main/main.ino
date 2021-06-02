@@ -36,7 +36,6 @@ user input via serial port.
 #define TDI 9
 #define TDO 10
 #define TRST 11
-#define RELAY 12
 
 
 #define MAX_DR_LEN 32
@@ -49,7 +48,7 @@ user input via serial port.
 // half clock cycle
 // #define HC delay(1);
 // or
-#define HC delayMicroseconds(500);
+#define HC delayMicroseconds(100);
 // A more precise way to delay a half clock cycle
 // #define HC __asm__ __volatile__(
 //     		 "nop\t\n
@@ -852,8 +851,6 @@ uint16_t detect_dr_len(uint8_t * instruction, uint8_t ir_len){
 		}
 		counter++;
 	}
-	Serial.println("\n\nDid not find the current DR length, TDO stuck at: ");
-	Serial.print(digitalRead(TDO) ,DEC);
 	return 0;
 }
 
@@ -870,10 +867,11 @@ uint16_t detect_dr_len(uint8_t * instruction, uint8_t ir_len){
  * @param dr_out Pointer to dr_out register.
  * @param maxDRLen Maximum data register allowed.
 */
-void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out, uint16_t maxDRLen){
+void discovery(uint16_t maxDRLen, uint32_t last, uint32_t first, uint8_t * ir_in, uint8_t * ir_out){
 	uint32_t instruction = 0;
 	int counter;
 	int i;
+	uint32_t usercode = 0x12345678;  // TODO: delete later
 	
 
 	// discover all dr lengths corresponding to their ir.
@@ -885,11 +883,22 @@ void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out,
 		// reset tap
 		reset_tap();
 		counter = 0;
-
 		
+		
+		
+		// TODO: delete later
+		// check if previous instruction drove the device into an unknown state
+		usercode = read_user_code(ir_in, ir_out, dr_in, dr_out);
+		if (usercode != 0x12345678){
+			Serial.print("\nIR 0x");
+			Serial.print(instruction - 1, HEX); Serial.print(" ... ");
+			Serial.print("Unknown state, exiting...");
+			return;
+		}	
+		// TODO: delete later
 		intToBinArray(ir_in, ISC_ENABLE, ir_len);
 		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-		HC; HC;
+		HC; HC; HC; HC;
 		
 		
 		// prepare to shift instruction
@@ -898,8 +907,8 @@ void discovery(uint32_t first, uint32_t last, uint8_t * ir_in, uint8_t * ir_out,
 		// shift instruction
 		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
-		/* some delay to process the instruction */
-		HC; HC; HC; HC;  // a couple of clock cycles
+		/* a couple of clock cycles to process the instruction */
+		HC; HC; HC; HC; HC; HC; HC; HC;
 		
 		advance_tap_state(SELECT_DR);
 		advance_tap_state(CAPTURE_DR);
@@ -1299,18 +1308,13 @@ void sendDataToHost(uint8_t * buf, uint16_t chunk_size)
  * @return 32 bit integer that represents the user code.
  */
 uint32_t read_user_code(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t * dr_out){
-	uint32_t usercode = 0;
-
 	clear_reg(dr_out, MAX_DR_LEN);
 
 	intToBinArray(ir_in, USERCODE, ir_len);
 	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 	insert_dr(dr_in, 32, RUN_TEST_IDLE, dr_out);
 	
-	usercode = binArrayToInt(dr_out, 32);
-
-	Serial.print("\nUSERCODE: 0x"); Serial.print(usercode ,HEX);
-	return usercode;
+	return binArrayToInt(dr_out, 32);
 }
 
 
@@ -1422,7 +1426,6 @@ void read_ufm_range_burst(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, ui
 void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_t * dr_out){
 	uint32_t startAddr = 0;
 	uint32_t numToRead = 0;
-	char funcOption = 0;
 
 	Serial.print("\nReading flash address range");
 	
@@ -1431,21 +1434,11 @@ void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_
 		clear_reg(dr_out, MAX_DR_LEN);
 		
 		reset_tap();
-
-		funcOption = getCharacter("\nChoose an option: a = noraml read, b = burst read > ");
-
-		if (funcOption == 'a'){
-			startAddr = getInteger(16, "\nInsert start addr > ");
-			numToRead = getInteger(16, "\nInsert amount of words to read > ");
-			read_ufm_range(ir_in, ir_out, dr_in, dr_out, startAddr, numToRead);
-		}
-		else if (funcOption == 'b')
-		{
-			startAddr = getInteger(16, "\nInsert start addr > ");
-			numToRead = getInteger(16, "\nInsert amount of words to read > ");
-			read_ufm_range_burst(ir_in, ir_out, dr_in, dr_out, startAddr, numToRead);
-		}		
 		
+		startAddr = parseNumber(NULL, 16, "\nInsert start addr > ");
+		numToRead = parseNumber(NULL, 16, "\nInsert amount of words to read > ");
+		read_ufm_range_burst(ir_in, ir_out, dr_in, dr_out, startAddr, numToRead);
+			
 		if (getCharacter("\nInput 'q' to quit loop, else to continue > ") == 'q'){
 			Serial.println("Exiting...");
 			break;
@@ -1500,77 +1493,6 @@ void erase_device(uint8_t * ir_in, uint8_t * ir_out){
 }
 
 
-/**
- * Elef Ramot experiment
- */
-void erase_and_stop(uint8_t * ir_in, uint8_t * ir_out){
-	uint8_t i = 0;
-	uint32_t wait = parseNumber(NULL, 32, "Enter amount of microseconds to wait > ");
-	Serial.print("\nWait after till stop: "); Serial.print(wait);
-	
-	// for synching with sampler
-	pinMode(2, OUTPUT);
-	digitalWrite(2, HIGH);
-
-	
-	clear_reg(ir_in, ir_len);
-	clear_reg(dr_in, 32);
-
-	intToBinArray(ir_in, ISC_ENABLE, ir_len);
-	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-
-	delay(10);
-
-	intToBinArray(ir_in, ISC_ADDRESS_SHIFT, ir_len);
-	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-
-	intToBinArray(dr_in, 0x00, 23);
-	insert_dr(dr_in, 23, RUN_TEST_IDLE, dr_out);
-
-	delay(1);
-
-	// prepare the last IR that will start the erase
-	intToBinArray(ir_in, DSM_CLEAR, ir_len);
-	
-	
-	advance_tap_state(SELECT_DR);
-	advance_tap_state(SELECT_IR);
-	advance_tap_state(CAPTURE_IR);
-	advance_tap_state(SHIFT_IR);
-
-	// shift data bits into the IR. make sure that first bit is LSB
-	for (i = 0; i < ir_len - 1; i++)
-	{
-		digitalWrite(TDI, ir_in[i]);
-		digitalWrite(TCK, 0); HC;
-		digitalWrite(TCK, 1); HC;
-		ir_out[i] = digitalRead(TDO);  // read the shifted out bits . LSB first
-	}
-
-	// read and write the last IR bit and continue to the end state
-	digitalWrite(TDI, ir_in[i]);
-	advance_tap_state(EXIT1_IR);	
-	ir_out[i] = digitalRead(TDO);
-	
-	
-	// start erase
-	advance_tap_state(UPDATE_IR);
-	advance_tap_state(RUN_TEST_IDLE);
-	
-	digitalWrite(2, LOW);
-
-	delayMicroseconds(wait);
-	
-	// stop the erase
-	digitalWrite(RELAY, LOW);
-	digitalWrite(2, HIGH);
-
-	// power up
-	delay(1000);
-	digitalWrite(RELAY, HIGH);
-}
-
-
 
 void printMenu(){
 	Serial.flush();	
@@ -1585,7 +1507,6 @@ void printMenu(){
 	Serial.print("\ng - Detect DR length");
 	Serial.print("\ni - Insert ir");
 	Serial.print("\nr - Reset TAP");
-	Serial.print("\nw - Erase and Stop");
 	Serial.print("\nz - Exit");
 	Serial.flush();
 }
@@ -1598,10 +1519,8 @@ void setup(){
 	pinMode(TDI, OUTPUT);
 	pinMode(TDO, INPUT_PULLUP);
 	pinMode(TRST, OUTPUT);
-	pinMode(RELAY, OUTPUT);
 
 	/* initial pins state */
-	digitalWrite(RELAY, HIGH);
 	digitalWrite(TCK, 0);
 	digitalWrite(TMS, 1);
 	digitalWrite(TDI, 1);
@@ -1620,6 +1539,7 @@ void setup(){
 
 void loop() {
 	char command = '0';
+	int len = 0;
 	int nBits = 0;
 
 
@@ -1659,7 +1579,8 @@ void loop() {
 
 		case 'c':
 			// read user code
-			read_user_code(ir_in, ir_out, dr_in, dr_out);
+			Serial.print("\nUser Code: 0x"); 
+			Serial.print(read_user_code(ir_in, ir_out, dr_in, dr_out), HEX);
 			flush_ir_dr(ir_in, dr_out, ir_len, MAX_DR_LEN);
 			break;
 
@@ -1688,15 +1609,22 @@ void loop() {
 		
 		case 'f':
 			// discovery of IRs
-			discovery(getInteger(20,"\nInitial IR > "),
-					  getInteger(20,"\nFinal IR > "),
-					  ir_in,ir_out, getInteger(20,"Max allowed DR length > "));
+			discovery(parseNumber(NULL, 20, "Max allowed DR length > "),
+					parseNumber(NULL, 20, "Final IR > "),
+					parseNumber(NULL, 20, "Initial IR > "),
+					ir_in,ir_out);
 			break;
 		
 		case 'g':
 			// detect current dr length
-			Serial.print("\nDR length: ");
-			Serial.print(detect_dr_len(ir_in, ir_len), DEC);
+			len = detect_dr_len(ir_in, ir_len);
+			if (len == 0){
+				Serial.println("\nDid not find the current DR length, TDO stuck at 1");
+			}
+			else{
+				Serial.print("\nDR length: ");
+				Serial.print(len);
+			}
 			break;
 
 		case 'i':
@@ -1719,12 +1647,7 @@ void loop() {
 			// reset tap
 			reset_tap();
 			break;
-		
-		case 'w':
-			// erase and stop experiment
-			erase_and_stop(ir_in, ir_out);
-			break;
-		
+			
 		case 'z':
 			// quit main loop
 			Serial.print("\nExiting menu...");
