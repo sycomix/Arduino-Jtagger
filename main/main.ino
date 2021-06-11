@@ -1587,6 +1587,9 @@ void loop() {
 		case 'd':
 			// insert dr	
 			nBits = parseNumber(NULL, 32, "Enter amount of bits to shift > ");
+			if (nBits == 0)
+				break;
+			
 			parseNumber(dr_in, nBits, "\nShift DR > ");
 			insert_dr(dr_in, nBits, RUN_TEST_IDLE, dr_out);
 			
