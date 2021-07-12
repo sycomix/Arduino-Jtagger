@@ -4,8 +4,7 @@
 @brief Basic interface with the Jtagger Arduino driver.
         Enables easy and convinient user interaction with the driver.
 
-@author Michael Vigdorchik, October 2019, REtro team.
-@version Modifed 2021 version for Intel project.
+@author Michael Vigdorchik
 """
 
 
@@ -17,7 +16,7 @@ from sys import stdout
 INPUT_CHAR = ">"
 
 # uart propreties
-PORT = "COM4"
+PORT = "COM5"
 BAUD = 115200
 TIMEOUT = 0.5  # sec
 
@@ -50,7 +49,7 @@ def reader():
     while recv != "":
         try:
             recv = s.readline()  # read a '\n' terminated line or timeout
-            recv = recv.decode("cp1252")  # decodes utf-8 and more
+            recv = recv.decode("cp437")  # decodes utf-8 and more
             stdout.write(recv)
             stdout.flush()
 

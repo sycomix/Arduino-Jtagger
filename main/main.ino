@@ -4,12 +4,7 @@
  *		detecting existance of a scan chain. read idcode, insert ir and dr,
  *		and other simple or complex implementations of custom made operations.
  *
- * @author Michael Vigdorchik, October 2019, REtro team.
- * @version Modifed 2021 version for Intel projects.
- * 
- *
- *
- * TODO: Create a seperate header and c files for the custom project functions.
+ * @author Michael Vigdorchik, October 2019
  */
 
 
@@ -49,12 +44,22 @@ user input via serial port.
 // #define HC delay(1);
 // or
 #define HC delayMicroseconds(100);
-// A more precise way to delay a half clock cycle
-// #define HC __asm__ __volatile__(
-//     		 "nop\t\n
-//     		  nop\t\n
-//     		  nop\t\n
-//     		  nop\t\n" : : );
+
+// A more precise way to delay a half clock cycle:
+/*
+#define HC \
+{ \
+    __asm__ __volatile__("nop \n\t \
+                          nop \n\t \
+						  nop \n\t \
+						  nop \n\t \
+                          " : :);  \
+}
+
+Notice, that you also need to override the digitalWrite and digitalRead
+functions with an appropriate assembly in order to reach the desired JTAG speeds.
+*/
+ 
 
 
 
@@ -62,7 +67,7 @@ user input via serial port.
 uint32_t idcode = 0;
 uint8_t dr_out[MAX_DR_LEN] = {0};
 uint8_t dr_in[MAX_DR_LEN] = {0};
-uint8_t ir_len = 0;
+uint8_t ir_len = 1;
 String digits = "";
 
 
@@ -814,7 +819,7 @@ uint16_t detect_dr_len(uint8_t * instruction, uint8_t ir_len){
 	
 	/* Make sure that current state is TLR*/
 
-	uint8_t tmp[ir_len] = {0};  // temporary array to strore the shifted out bits of IR
+	uint8_t tmp[ir_len];  // temporary array to strore the shifted out bits of IR
 	uint16_t i = 0;
 	uint16_t counter = 0;
 
@@ -860,7 +865,7 @@ uint16_t detect_dr_len(uint8_t * instruction, uint8_t ir_len){
  * value of the ir register to get its corresponding dr leght in bits.
  * test logic reset state is being reached after each instructio.
  * @param first ir value to begin with.
- * @param last Usually 2^ir_len - 1.
+ * @param last Usually 2**ir_len - 1.
  * @param ir_in Pointer to ir_in register.
  * @param ir_out Pointer to ir_out register.
  * @param dr_in Pointer to dr_in register.
@@ -1553,8 +1558,8 @@ void loop() {
 	Serial.print("IR length: "); Serial.print(ir_len);
 	
 	// define ir register according to ir length
-	uint8_t ir_in[ir_len] = {0};
-	uint8_t ir_out[ir_len] = {0};
+	uint8_t ir_in[ir_len];
+	uint8_t ir_out[ir_len];
 
 	reset_tap();
 
