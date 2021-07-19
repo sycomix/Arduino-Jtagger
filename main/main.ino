@@ -1465,36 +1465,30 @@ void readFlashSession(uint8_t * ir_in, uint8_t * ir_out, uint8_t * dr_in, uint8_
  * @param ir_out Pointer to ir_out register.
  */
 void erase_device(uint8_t * ir_in, uint8_t * ir_out){
+	Serial.println("\nErasing device ...");
 
-	if (getCharacter("\nAre you sure ? (y/n) > ") == 'y'){
-		Serial.println("\nErasing device ...");
+	clear_reg(ir_in, ir_len);
+	clear_reg(dr_in, 32);
 
-		clear_reg(ir_in, ir_len);
-		clear_reg(dr_in, 32);
+	intToBinArray(ir_in, ISC_ENABLE, ir_len);
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
+	delay(1);
 
-		intToBinArray(ir_in, ISC_ENABLE, ir_len);
-		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+	intToBinArray(ir_in, ISC_ADDRESS_SHIFT, ir_len);
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+	
+	intToBinArray(dr_in, 0x00, 23);
+	insert_dr(dr_in, 23, RUN_TEST_IDLE, dr_out);
 
-		delay(10);
+	delay(1);
 
-		intToBinArray(ir_in, ISC_ADDRESS_SHIFT, ir_len);
-		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
+	intToBinArray(ir_in, DSM_CLEAR, ir_len);
+	insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 
-		
-		intToBinArray(dr_in, 0x00, 23);
-		insert_dr(dr_in, 23, RUN_TEST_IDLE, dr_out);
+	delay(400);
 
-		delay(10);
-
-		intToBinArray(ir_in, DSM_CLEAR, ir_len);
-		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
-
-		delay(400);
-	}
-	else{
-		Serial.println("\nReturning to menu");
-	}
+	Serial.println("\nDone");
 }
 
 

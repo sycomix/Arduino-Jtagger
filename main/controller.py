@@ -16,7 +16,7 @@ from sys import stdout
 INPUT_CHAR = ">"
 
 # uart propreties
-PORT = "COM5"
+PORT = "COM4"
 BAUD = 115200
 TIMEOUT = 0.5  # sec
 
