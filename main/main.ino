@@ -4,6 +4,8 @@
  *		detecting existance of a scan chain. read idcode, insert ir and dr,
  *		and other simple or complex implementations of custom made operations.
  *
+ * 		Can be simply modified for your requirements.
+ *
  * @author Michael Vigdorchik, October 2019
  */
 
@@ -864,6 +866,10 @@ uint16_t detect_dr_len(uint8_t * instruction, uint8_t ir_len){
  * @brief Similarly to discovery command in urjtag, performs a brute force search of each possible
  * value of the ir register to get its corresponding dr leght in bits.
  * test logic reset state is being reached after each instructio.
+ *
+ * Notice !!! that there is a ckeck that verifies whether the device entered an unknown state.
+ * You should change this check to fit your specific case study !
+ * 
  * @param first ir value to begin with.
  * @param last Usually 2**ir_len - 1.
  * @param ir_in Pointer to ir_in register.
@@ -876,7 +882,7 @@ void discovery(uint16_t maxDRLen, uint32_t last, uint32_t first, uint8_t * ir_in
 	uint32_t instruction = 0;
 	int counter;
 	int i;
-	uint32_t usercode = 0x12345678;  // TODO: delete later
+	uint32_t usercode = 0x12345678;  // TODO: modifiy for your case
 	
 
 	// discover all dr lengths corresponding to their ir.
@@ -888,19 +894,18 @@ void discovery(uint16_t maxDRLen, uint32_t last, uint32_t first, uint8_t * ir_in
 		// reset tap
 		reset_tap();
 		counter = 0;
-		
-		
-		
-		// TODO: delete later
+			
+		// TODO: modifiy for your case
 		// check if previous instruction drove the device into an unknown state
 		usercode = read_user_code(ir_in, ir_out, dr_in, dr_out);
 		if (usercode != 0x12345678){
 			Serial.print("\nIR 0x");
-			Serial.print(instruction - 1, HEX); Serial.print(" ... ");
-			Serial.print("Unknown state, exiting...");
+			Serial.print(instruction, HEX); Serial.print(" ... ");
+			Serial.print("Unknown state, usercode = ");  Serial.print(usercode, HEX);
+			Serial.print("  exiting...");
 			return;
 		}	
-		// TODO: delete later
+		// TODO: modifiy for your case
 		intToBinArray(ir_in, ISC_ENABLE, ir_len);
 		insert_ir(ir_in, ir_len, RUN_TEST_IDLE, ir_out);
 		HC; HC; HC; HC;
