@@ -29,7 +29,7 @@ def writer(data: str):
     Attempt to write data to serial device.
     @param data: String data to write.
     """
-    if data == "":
+    if not data:
         # user entered not data.
         # happens when just pressing "ENTER" key, to pass input function
         data = " "  # instead insert a SPACE character (0x20)
